@@ -3,7 +3,7 @@ import Data.List
 import Data.Maybe
 import System.Environment
 
-data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast]
+data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | Decl String String
     deriving (Show)
 
 data Op = Op
@@ -19,16 +19,27 @@ data ExprElem = Operator Op | Ast Ast
 instance Show Op where
     show (Op {symbol=s}) = show s
 
+data Type = Type
+    { name :: String
+    , size :: Integer
+    }
+
+instance Show Type where
+    show (Type {name=n}) = show n
+
 type AsmLine = String
 type Asm = [AsmLine]
 
 type Register = Integer
 type Registers = [Bool]
 
-operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 2 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0)]
+operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 2 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0)]
 extraSymbols = [";", "(", ")"]
 
-opShortList = ["+", "-", "*", "/", "++"]
+opShortList = ["+", "-", "*", "/", "++", "="]
+
+types = [(Type "int" 4), (Type "short" 2), (Type "byte" 1)]
+typeShortList = ["int", "short", "byte"]
 
 --- TOKENIZE
 
@@ -59,8 +70,17 @@ parseBlock [] = (Block [], [])
 parseBlock ("}":xs) = (Block [], ("}":xs))
 parseBlock (x:xs) = (addAst (fst block) (fst expr), snd block)
     where 
-        expr = parseExpr (x:xs)
+        expr = parseLine (x:xs)
         block = parseBlock $ snd expr
+
+parseLine :: [String] -> (Ast, [String])
+parseLine [] = (undefined, [])
+parseLine (x:xs)
+    | isType x && length xs > 0 && all isAlpha (head xs) = (Decl x (head xs), xs)
+    | otherwise = parseExpr (x:xs)
+
+isType :: String -> Bool
+isType str = elem str typeShortList
 
 parseExpr :: [String] -> (Ast, [String])
 parseExpr [] = (undefined, [])
@@ -69,7 +89,9 @@ parseExpr (x:xs) = (prefixToTree $ infixToPrefix $ fst exprList, drop 1 $ snd ex
 
 parseSingleExpr :: [String] -> (Ast, [String])
 parseSingleExpr ("(":xs) = parseExpr xs
-parseSingleExpr (x:xs) = (Number $ read x, xs)
+parseSingleExpr (x:xs)
+    | all isDigit x = (Number $ read x, xs)
+    | all isAlpha x && length xs > 0 && head xs /= "(" = (Name x, xs)
 
 getExprList :: [String] -> ([ExprElem], [String])
 getExprList [] = ([], []) -- error "Unexpected end of expression"
@@ -121,6 +143,8 @@ getOpFromSym "+" = operators !! 0
 getOpFromSym "-" = operators !! 1
 getOpFromSym "*" = operators !! 2
 getOpFromSym "/" = operators !! 3
+getOpFromSym "++" = operators !! 4
+getOpFromSym "=" = operators !! 5
 
 --- TO ASM
 
