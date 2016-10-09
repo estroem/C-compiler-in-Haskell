@@ -2,16 +2,26 @@ import Data.Char
 import Data.List
 import Data.Maybe
 
-data Ast = Number Integer | Name String | App Ast [Ast]
-    deriving (Eq, Show, Ord)
-
-data ExprElem = Op String | Ast Ast
+data Ast = Number Integer | Name String | App Op [Ast]
     deriving (Show)
 
-ops = ["+", "-", "*", "/", "++"]
-opNumArgs = [2, 2, 2, 2, 1]
-opPrecedence = [1, 1, 2, 2, 3]
-opAssoc = [0, 0, 0, 0, 0]
+data Op = Op
+    { symbol :: String
+    , numArgs :: Integer
+    , precedence :: Integer
+    , assoc :: Integer
+    }
+
+data ExprElem = Operator Op | Ast Ast
+    deriving (Show)
+
+instance Show Op where
+    show (Op {symbol=s}) = show s
+
+operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 2 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0)]
+extraSymbols = [";", "(", ")"]
+
+opShortList = ["+", "-", "*", "/", "++"]
 
 --- TOKENIZE
 
@@ -21,49 +31,72 @@ tokenize (x:xs)
     | isDigit x = (x : takeWhile isDigit xs) : tokenize (dropWhile isDigit xs)
     | isAlpha x = (x : takeWhile isAlpha xs) : tokenize (dropWhile isAlpha xs)
     | x == ' ' || x == '\t' || x == '\n' = tokenize xs
-    | length xs >= 2 && elem (x:take 2 xs) ops = (x : (take 2 xs)) : (tokenize (drop 2 xs))
-    | length xs >= 1 && elem (x:take 1 xs) ops = (x : (take 1 xs)) : (tokenize (tail xs))
-    | elem [x] ops = [x] : tokenize xs
+    | length xs >= 2 && symExists (x:take 2 xs) = (x : (take 2 xs)) : (tokenize (drop 2 xs))
+    | length xs >= 1 && symExists (x:take 1 xs) = (x : (take 1 xs)) : (tokenize (tail xs))
+    | symExists [x] = [x] : tokenize xs
     | otherwise = error $ "Illegal symbol \"" ++ [x] ++ "\""
+
+symExists :: String -> Bool
+symExists sym = elem sym (opShortList ++ extraSymbols)
 
 --- PARSE
 
 parseExpr :: [String] -> (Ast, [String])
 parseExpr [] = (undefined, [])
-parseExpr (x:xs)
-    | elem x ops = parseOpLeft x xs
-    | isDigit $ head x = (Number $ read x, xs)
-    | otherwise = undefined
-    
-getExprList :: [String] -> [ExprElem]
-getExprList [] = []
-getExprList (x:xs)
-    | x == ")" || x == "," || x == ";" = []
-    | elem x ops = (Op x) : getExprList xs
-    | otherwise = (Ast (fst expr)) : getExprList (snd expr)
-        where
-            expr = parseExpr (x:xs)
+parseExpr (x:xs) = (prefixToTree $ infixToPrefix $ fst exprList, drop 1 $ snd exprList)
+        where exprList = getExprList (x:xs)
 
-infixToPostfix :: [ExprElem] -> [ExprElem]
-infixToPostfix list = reverse valueList ++ opList
+parseSingleExpr :: [String] -> (Ast, [String])
+parseSingleExpr ("(":xs) = parseExpr xs
+parseSingleExpr (x:xs) = (Number $ read x, xs)
+
+getExprList :: [String] -> ([ExprElem], [String])
+getExprList [] = ([], []) -- error "Unexpected end of expression"
+getExprList (x:xs)
+    | x == ")" || x == "," || x == ";" = ([], (x:xs))
+    | elem x opShortList = let exprList = getExprList xs in ((Operator (getOpFromSym x)) : fst exprList, snd exprList)
+    | otherwise =  let exprList = getExprList (snd expr) in ((Ast (fst expr)) : fst exprList, snd exprList)
+        where
+            expr = parseSingleExpr (x:xs)
+
+prefixToTree :: [ExprElem] -> Ast
+prefixToTree list = fst $ prefixToTreeReq list
+
+prefixToTreeReq :: [ExprElem] -> (Ast, [ExprElem])
+prefixToTreeReq ((Ast x):xs) = (x, xs)
+prefixToTreeReq ((Operator op):xs) =
+    if numArgs op == 2
+        then (App op ((fst arg2):(fst arg1):[]), snd arg2)
+        else if numArgs op == 1
+            then (App op [fst arg1], snd arg1)
+            else error "Illegal number of args"
+    where
+        arg1 = prefixToTreeReq xs
+        arg2 = prefixToTreeReq $ snd arg1
+
+infixToPrefix :: [ExprElem] -> [ExprElem]
+infixToPrefix list = reverse $ reverse valueList ++ opList
     where
         (opList, valueList) = infixToPostfixReq list [] []
 
 infixToPostfixReq :: [ExprElem] -> [ExprElem] -> [ExprElem] -> ([ExprElem], [ExprElem])
 infixToPostfixReq [] a b = (a, b)
 infixToPostfixReq ((Ast x):xs) opList valueList = infixToPostfixReq xs opList ((Ast x):valueList)
-infixToPostfixReq ((Op x):xs) opList valueList = infixToPostfixReq xs ((Op x):opList2) valueList2
+infixToPostfixReq ((op@(Operator {})):xs) opList valueList = infixToPostfixReq xs (op:opList2) valueList2
     where
-        (opList2, valueList2) = popOperators (Op x) opList valueList
+        (opList2, valueList2) = popOperators op opList valueList
 
 popOperators :: ExprElem -> [ExprElem] -> [ExprElem] -> ([ExprElem], [ExprElem])
-popOperators (Op op) opList valueList =
-    if not (null opList) && (getPrecedence op) < (getPrecedence $ getStringFromOp $ head opList)
-        then popOperators (Op op) (tail opList) ((head opList) : valueList)
+popOperators (Operator op) opList valueList =
+    if not (null opList) && (precedence op) < (precedence $ getOpFromExprElem $ head opList)
+        then popOperators (Operator op) (tail opList) ((head opList) : valueList)
         else (opList, valueList)
 
-getPrecedence :: String -> Integer
-getPrecedence op = opPrecedence !! (fromJust $ elemIndex op ops)
+getOpFromExprElem :: ExprElem -> Op
+getOpFromExprElem (Operator op) = op
 
-getStringFromOp :: ExprElem -> String
-getStringFromOp (Op op) = op
+getOpFromSym :: String -> Op
+getOpFromSym "+" = operators !! 0
+getOpFromSym "-" = operators !! 1
+getOpFromSym "*" = operators !! 2
+getOpFromSym "/" = operators !! 3
