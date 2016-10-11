@@ -3,7 +3,7 @@ import Data.List
 import Data.Maybe
 import System.Environment
 
-data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | Decl String String
+data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | Decl Type String | If Ast Ast Ast | Call Ast [Ast]
     deriving (Show)
 
 data Op = Op
@@ -34,7 +34,7 @@ type Register = Integer
 type Registers = [Bool]
 
 operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 2 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0)]
-extraSymbols = [";", "(", ")"]
+extraSymbols = [";", "(", ")", "{", "}", ","]
 
 opShortList = ["+", "-", "*", "/", "++", "="]
 
@@ -67,31 +67,62 @@ addAst (Block list) ast = Block (ast:list)
 
 parseBlock :: [String] -> (Ast, [String])
 parseBlock [] = (Block [], [])
-parseBlock ("}":xs) = (Block [], ("}":xs))
+parseBlock ("}":xs) = (Block [], xs)
 parseBlock (x:xs) = (addAst (fst block) (fst expr), snd block)
-    where 
+    where
         expr = parseLine (x:xs)
         block = parseBlock $ snd expr
 
 parseLine :: [String] -> (Ast, [String])
 parseLine [] = (undefined, [])
+parseLine ("if":"(":xs) = parseIf xs
 parseLine (x:xs)
-    | isType x && length xs > 0 && all isAlpha (head xs) = (Decl x (head xs), xs)
-    | otherwise = parseExpr (x:xs)
+    | isType x && length xs > 0 && all isAlpha (head xs) = (Decl (getTypeFromSym x) (head xs), xs)
+    | otherwise = (fst expr, drop 1 $ snd expr)
+        where expr = parseExpr (x:xs)
 
 isType :: String -> Bool
 isType str = elem str typeShortList
 
+parseIf :: [String] -> (Ast, [String])
+parseIf (x:xs) =
+    if length (snd block1) > 0 && (snd block1) !! 0 == "else"
+        then (If (fst expr) (fst block1) (fst block2), snd block2)
+        else (If (fst expr) (fst block1) (Block []), snd block1)
+    where
+        expr = parseExpr (x:xs)
+        block1 = parseBlock $ drop 2 $ snd expr
+        block2 = parseBlock $ drop 2 $ snd block1
+
+parseCallArgs :: [String] -> ([Ast], [String])
+parseCallArgs ("(":")":xs) = ([], xs)
+parseCallArgs (")":xs) = ([], xs)
+parseCallArgs (x:xs) = (arg : nextArgs, rest)
+    where
+        (arg, nextArgsString) = parseExpr xs
+        (nextArgs, rest) = parseCallArgs nextArgsString
+
 parseExpr :: [String] -> (Ast, [String])
 parseExpr [] = (undefined, [])
-parseExpr (x:xs) = (prefixToTree $ infixToPrefix $ fst exprList, drop 1 $ snd exprList)
-    where exprList = getExprList (x:xs)
+parseExpr (x:xs) = (prefixToTree $ infixToPrefix $ fst exprList, snd exprList)
+    where
+        exprList = getExprList (x:xs)
 
 parseSingleExpr :: [String] -> (Ast, [String])
-parseSingleExpr ("(":xs) = parseExpr xs
-parseSingleExpr (x:xs)
-    | all isDigit x = (Number $ read x, xs)
-    | all isAlpha x && length xs > 0 && head xs /= "(" = (Name x, xs)
+parseSingleExpr (x:xs) =
+    let expr = if x == "("
+        then parseExpr xs
+        else if all isDigit x
+            then (Number $ read x, (x:xs))
+            else if all isAlpha x
+                then (Name x, (x:xs))
+                else error $ "Unexpected \"" ++ x ++ "\""
+        in
+            if (snd expr) !! 1 == "("
+                then
+                    let args = (parseCallArgs $ tail $ snd expr)
+                        in (Call (fst expr) (fst args), snd args)
+                else (fst expr, tail $ snd expr)
 
 getExprList :: [String] -> ([ExprElem], [String])
 getExprList [] = ([], []) -- error "Unexpected end of expression"
@@ -146,6 +177,11 @@ getOpFromSym "/" = operators !! 3
 getOpFromSym "++" = operators !! 4
 getOpFromSym "=" = operators !! 5
 
+getTypeFromSym :: String -> Type
+getTypeFromSym "int" = types !! 0
+getTypeFromSym "short" = types !! 1
+getTypeFromSym "byte" = types !! 2
+
 --- TO ASM
 
 toAsm :: Ast -> Registers -> (Asm, Register)
@@ -159,6 +195,8 @@ toAsm (Number x) regs = (["mov " ++ (getRegName reg) ++ ", " ++ (show x)], reg)
     where
         reg = regAlloc regs
 
+--toAsm (Name name) regs = 
+
 toAsm (App op exprList) regs
     | symbol op == "+" = (expr1 ++ expr2 ++ ["add " ++ getRegName reg1 ++ ", " ++ getRegName reg2], reg1)
     | symbol op == "-" = (expr1 ++ expr2 ++ ["sub " ++ getRegName reg1 ++ ", " ++ getRegName reg2], reg1)
@@ -167,6 +205,12 @@ toAsm (App op exprList) regs
         where
             (expr1, reg1) = toAsm (exprList !! 1) regs
             (expr2, reg2) = toAsm (exprList !! 0) (takeReg regs reg1)
+
+toAsm (If cond thenBlock elseBlock) regs = (condAsm ++ [("cmp " ++ getRegName condReg ++ ", 0"), ("jne then")] ++ elseBlockAsm ++ ["jmp end", "then:"] ++ thenBlockAsm ++ ["end:"], 0)
+    where
+        (condAsm, condReg) = toAsm cond regs
+        (thenBlockAsm, _) = toAsm thenBlock regs
+        (elseBlockAsm, _) = toAsm elseBlock regs
 
 takeReg :: Registers -> Register -> Registers
 takeReg regs reg = take (fromIntegral reg) regs ++ [False] ++ drop (fromIntegral reg + 1) regs
