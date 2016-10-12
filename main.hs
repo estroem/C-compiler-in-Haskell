@@ -27,11 +27,20 @@ data Type = Type
 instance Show Type where
     show (Type {name=n}) = show n
 
+data AsmFunc = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | MovTo Reg Integer | MovFrom Integer Reg | Label String | Cmp Reg | Jmp String | Jne String | Jle String | Jl String
+    deriving (Show)
+type Reg = Integer
+
 type AsmLine = String
-type Asm = [AsmLine]
+type Asm = [AsmFunc]
 
 type Register = Integer
 type Registers = [Bool]
+
+data Var = Var
+    { varName :: String
+    , varType :: Type
+    }
 
 operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 2 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0)]
 extraSymbols = [";", "(", ")", "{", "}", ","]
@@ -91,8 +100,8 @@ parseIf (x:xs) =
         else (If (fst expr) (fst block1) (Block []), snd block1)
     where
         expr = parseExpr (x:xs)
-        block1 = parseBlock $ drop 2 $ snd expr
-        block2 = parseBlock $ drop 2 $ snd block1
+        block1 = parseExprOrBlock $ drop 1 $ snd expr
+        block2 = parseExprOrBlock $ drop 1 $ snd block1
 
 parseCallArgs :: [String] -> ([Ast], [String])
 parseCallArgs ("(":")":xs) = ([], xs)
@@ -107,6 +116,11 @@ parseExpr [] = (undefined, [])
 parseExpr (x:xs) = (prefixToTree $ infixToPrefix $ fst exprList, snd exprList)
     where
         exprList = getExprList (x:xs)
+
+parseExprOrBlock :: [String] -> (Ast, [String])
+parseExprOrBlock ("{":xs) = parseBlock xs
+parseExprOrBlock (x:xs) = (fst expr, tail $ snd expr)
+    where expr = parseExpr (x:xs)
 
 parseSingleExpr :: [String] -> (Ast, [String])
 parseSingleExpr (x:xs) =
@@ -184,33 +198,31 @@ getTypeFromSym "byte" = types !! 2
 
 --- TO ASM
 
-toAsm :: Ast -> Registers -> (Asm, Register)
-toAsm (Block [x]) regs = (fst $ toAsm x regs, 0)
-toAsm (Block (x:xs)) regs = (expr ++ block, 0)
+toAsm :: Ast -> Reg -> (Asm, Reg)
+toAsm (Block [x]) regsTaken = (fst $ toAsm x regsTaken, 0)
+toAsm (Block (x:xs)) regsTaken = (expr ++ block, 0)
     where
-        (expr, _) = toAsm x regs
-        (block, _) = toAsm (Block xs) regs
+        (expr, _) = toAsm x regsTaken
+        (block, _) = toAsm (Block xs) regsTaken
 
-toAsm (Number x) regs = (["mov " ++ (getRegName reg) ++ ", " ++ (show x)], reg)
-    where
-        reg = regAlloc regs
+toAsm (Number x) regsTaken = ([MovTo (regsTaken + 1) x], regsTaken + 1)
 
 --toAsm (Name name) regs = 
 
-toAsm (App op exprList) regs
-    | symbol op == "+" = (expr1 ++ expr2 ++ ["add " ++ getRegName reg1 ++ ", " ++ getRegName reg2], reg1)
-    | symbol op == "-" = (expr1 ++ expr2 ++ ["sub " ++ getRegName reg1 ++ ", " ++ getRegName reg2], reg1)
-    | symbol op == "*" = (expr1 ++ expr2 ++ ["mul " ++ getRegName reg1 ++ ", " ++ getRegName reg2], reg1)
-    | symbol op == "/" = (expr1 ++ expr2 ++ ["div " ++ getRegName reg1 ++ ", " ++ getRegName reg2], reg1)
+toAsm (App op exprList) regsTaken
+    | symbol op == "+" = (expr1 ++ expr2 ++ [Add reg2 reg1], reg2)
+    | symbol op == "-" = (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
+    | symbol op == "*" = (expr1 ++ expr2 ++ [Mul reg2 reg1], reg2)
+    | symbol op == "/" = (expr1 ++ expr2 ++ [Div reg2 reg1], reg2)
         where
-            (expr1, reg1) = toAsm (exprList !! 1) regs
-            (expr2, reg2) = toAsm (exprList !! 0) (takeReg regs reg1)
+            (expr1, reg1) = toAsm (exprList !! 1) regsTaken
+            (expr2, reg2) = toAsm (exprList !! 0) reg1
 
-toAsm (If cond thenBlock elseBlock) regs = (condAsm ++ [("cmp " ++ getRegName condReg ++ ", 0"), ("jne then")] ++ elseBlockAsm ++ ["jmp end", "then:"] ++ thenBlockAsm ++ ["end:"], 0)
+toAsm (If cond thenBlock elseBlock) regsTaken = (condAsm ++ [Cmp condReg, Jne ("then" ++ show condReg)] ++ elseBlockAsm ++ [Jmp ("end" ++ show condReg), Label ("then" ++ show condReg)] ++ thenBlockAsm ++ [Label ("end" ++ show condReg)], elseReg)
     where
-        (condAsm, condReg) = toAsm cond regs
-        (thenBlockAsm, _) = toAsm thenBlock regs
-        (elseBlockAsm, _) = toAsm elseBlock regs
+        (condAsm, condReg) = toAsm cond regsTaken
+        (thenBlockAsm, thenReg) = toAsm thenBlock condReg
+        (elseBlockAsm, elseReg) = toAsm elseBlock thenReg
 
 takeReg :: Registers -> Register -> Registers
 takeReg regs reg = take (fromIntegral reg) regs ++ [False] ++ drop (fromIntegral reg + 1) regs
@@ -226,26 +238,20 @@ regAlloc regs =
     where
         reg = length $ takeWhile (== False) regs
 
-emptyRegList :: Registers
-emptyRegList = [True, True, True, True]
-
-getRegName :: Register -> String
-getRegName i = ["rax", "rbx", "rcx", "rdx"] !! fromInteger i
-
 --- COMPILE
 
 compile :: String -> Asm
-compile str = fst $ toAsm (parse str) emptyRegList
+compile str = fst $ toAsm (parse str) 0
 
 --- MAIN
 
-main :: IO ()
-main = do
-    args <- getArgs
-    printAsm $ compile $ head args
+--main :: IO ()
+--main = do
+--    args <- getArgs
+--    printAsm $ compile $ head args
 
-printAsm [] = do
-    putStr ""
-printAsm asm = do
-    putStrLn $ head asm
-    printAsm $ tail asm
+--printAsm [] = do
+    --putStr ""
+--printAsm asm = do
+    --putStrLn $ head asm
+    --printAsm $ tail asm
