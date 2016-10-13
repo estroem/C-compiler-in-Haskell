@@ -27,7 +27,7 @@ data Type = Type
 instance Show Type where
     show (Type {name=n}) = show n
 
-data AsmFunc = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | MovTo Reg Integer | MovFrom Integer Reg | Label String | Cmp Reg | Jmp String | Jne String | Jle String | Jl String
+data AsmFunc = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer | Load Reg String | Save String Reg | SaveToPtr Reg Reg | Label String | Cmp Reg | Jmp String | Je String | Jne String | Jle String | Jl String
     deriving (Show)
 type Reg = Integer
 
@@ -42,7 +42,7 @@ data Var = Var
     , varType :: Type
     }
 
-operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 2 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0)]
+operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 1 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0)]
 extraSymbols = [";", "(", ")", "{", "}", ","]
 
 opShortList = ["+", "-", "*", "/", "++", "="]
@@ -54,6 +54,7 @@ typeShortList = ["int", "short", "byte"]
 
 tokenize :: String -> [String]
 tokenize [] = []
+tokenize ('/':'/':xs) = tokenize $ dropWhile (/= '\n') xs
 tokenize (x:xs)
     | isDigit x = (x : takeWhile isDigit xs) : tokenize (dropWhile isDigit xs)
     | isAlpha x = (x : takeWhile isAlpha xs) : tokenize (dropWhile isAlpha xs)
@@ -199,30 +200,45 @@ getTypeFromSym "byte" = types !! 2
 --- TO ASM
 
 toAsm :: Ast -> Reg -> (Asm, Reg)
-toAsm (Block [x]) regsTaken = (fst $ toAsm x regsTaken, 0)
-toAsm (Block (x:xs)) regsTaken = (expr ++ block, 0)
+toAsm (Block []) nextReg = ([], nextReg)
+toAsm (Block [x]) nextReg = toAsm x nextReg
+toAsm (Block (x:xs)) nextReg = (expr ++ block, nextReg)
     where
-        (expr, _) = toAsm x regsTaken
-        (block, _) = toAsm (Block xs) regsTaken
+        (expr, _) = toAsm x nextReg
+        (block, _) = toAsm (Block xs) nextReg
 
-toAsm (Number x) regsTaken = ([MovTo (regsTaken + 1) x], regsTaken + 1)
+toAsm (Number x) nextReg = ([Mov (nextReg + 1) x], nextReg + 1)
 
---toAsm (Name name) regs = 
+toAsm (Name name) nextReg = ([Load (nextReg + 1) name], nextReg + 1)
 
-toAsm (App op exprList) regsTaken
+toAsm (App op exprList) nextReg
     | symbol op == "+" = (expr1 ++ expr2 ++ [Add reg2 reg1], reg2)
     | symbol op == "-" = (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
     | symbol op == "*" = (expr1 ++ expr2 ++ [Mul reg2 reg1], reg2)
     | symbol op == "/" = (expr1 ++ expr2 ++ [Div reg2 reg1], reg2)
+    | symbol op == "=" = handleAssign (head exprList) (last exprList) nextReg
         where
-            (expr1, reg1) = toAsm (exprList !! 1) regsTaken
+            (expr1, reg1) = toAsm (exprList !! 1) nextReg
             (expr2, reg2) = toAsm (exprList !! 0) reg1
 
-toAsm (If cond thenBlock elseBlock) regsTaken = (condAsm ++ [Cmp condReg, Jne ("then" ++ show condReg)] ++ elseBlockAsm ++ [Jmp ("end" ++ show condReg), Label ("then" ++ show condReg)] ++ thenBlockAsm ++ [Label ("end" ++ show condReg)], elseReg)
+toAsm (If cond thenBlock elseBlock) nextReg
+    | not $ isEmpty elseBlock = (condAsm ++ [Cmp condReg, Jne ("then" ++ show condReg)] ++ elseBlockAsm ++ [Jmp ("endif" ++ show condReg), Label ("then" ++ show condReg)] ++ thenBlockAsm ++ [Label ("endif" ++ show condReg)], 0)
+    | otherwise = (condAsm ++ [Cmp condReg, Je ("endif" ++ show condReg)] ++ thenBlockAsm ++ [Label ("endif" ++ show condReg)], 0)
     where
-        (condAsm, condReg) = toAsm cond regsTaken
-        (thenBlockAsm, thenReg) = toAsm thenBlock condReg
-        (elseBlockAsm, elseReg) = toAsm elseBlock thenReg
+        (condAsm, condReg) = toAsm cond nextReg
+        (thenBlockAsm, _) = toAsm thenBlock nextReg
+        (elseBlockAsm, _) = toAsm elseBlock nextReg
+
+--toAsm (Call name args) nextReg = 
+
+handleAssign :: Ast -> Ast -> Reg -> (Asm, Reg)
+handleAssign (Name name) expr nextReg = (exprAsm ++ [Save name assignReg], assignReg)
+    where (exprAsm, assignReg) = toAsm expr nextReg
+
+handleAssign (App op [addrExpr]) expr nextReg = (addrAsm ++ exprAsm ++ [SaveToPtr addrReg exprReg], exprReg)
+    where
+        (addrAsm, addrReg) = toAsm addrExpr nextReg
+        (exprAsm, exprReg) = toAsm expr addrReg
 
 takeReg :: Registers -> Register -> Registers
 takeReg regs reg = take (fromIntegral reg) regs ++ [False] ++ drop (fromIntegral reg + 1) regs
@@ -237,6 +253,15 @@ regAlloc regs =
         else toInteger reg
     where
         reg = length $ takeWhile (== False) regs
+
+isEmpty :: Ast -> Bool
+isEmpty (Block list) = null list
+
+getConst :: Ast -> String
+getConst = head . words . show
+
+getName :: Ast -> String
+getName (Name name) = name
 
 --- COMPILE
 
