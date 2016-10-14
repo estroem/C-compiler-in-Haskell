@@ -27,7 +27,10 @@ data Type = Type
 instance Show Type where
     show (Type {name=n}) = show n
 
-data AsmFunc = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer | Load Reg String | Save String Reg | SaveToPtr Reg Reg | Label String | Cmp Reg | Jmp String | Je String | Jne String | Jle String | Jl String
+data AsmFunc = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer
+             | Load Reg String | Save String Reg | SaveToPtr Reg Reg | Label String
+             | Cmp Reg | Jmp String | Je String | Jne String | Jle String | Jl String
+             | CallName String [Reg] Reg | CallAddr Reg [Reg] Reg
     deriving (Show)
 type Reg = Integer
 
@@ -229,7 +232,20 @@ toAsm (If cond thenBlock elseBlock) nextReg
         (thenBlockAsm, _) = toAsm thenBlock nextReg
         (elseBlockAsm, _) = toAsm elseBlock nextReg
 
---toAsm (Call name args) nextReg = 
+toAsm (Call (Name name) args) nextReg = (argsAsm ++ [CallName name argRegs nextReg], nextReg)
+    where (argsAsm, argRegs) = handleCallArgs args nextReg
+
+toAsm (Call addr args) nextReg = (addrAsm ++ argsAsm ++ [CallAddr addrReg argRegs nextReg], nextReg)
+    where
+        (addrAsm, addrReg) = toAsm addr nextReg
+        (argsAsm, argRegs) = handleCallArgs args addrReg
+
+handleCallArgs :: [Ast] -> Reg -> (Asm, [Reg])
+handleCallArgs [] _ = ([], [])
+handleCallArgs (x:xs) nextReg = (argAsm ++ finalAsm, argReg : finalReg)
+    where
+        (argAsm, argReg) = toAsm x nextReg
+        (finalAsm, finalReg) = handleCallArgs xs argReg
 
 handleAssign :: Ast -> Ast -> Reg -> (Asm, Reg)
 handleAssign (Name name) expr nextReg = (exprAsm ++ [Save name assignReg], assignReg)
