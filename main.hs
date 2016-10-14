@@ -19,13 +19,14 @@ data ExprElem = Operator Op | Ast Ast
 instance Show Op where
     show (Op {symbol=s}) = show s
 
-data Type = Type
-    { name :: String
-    , size :: Integer
-    }
+--data Type = PrimType { primTypeName :: String } | PtrType { ptrTypePointsTo :: Type }
+--          | FuncType { funcTypeRet :: Type, funcTypeArgs :: [Type] }
 
-instance Show Type where
-    show (Type {name=n}) = show n
+--instance Show Type where
+--    show (Type {name=n}) = show n
+
+data Type = PrimType String | PtrType Type | FuncType Type [Type] | EmptyType
+    deriving (Show)
 
 data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer
              | Load Reg String | Save String Reg | SaveToPtr Reg Reg | Label String
@@ -49,7 +50,7 @@ extraSymbols = [";", "(", ")", "{", "}", ","]
 
 opShoRtlist = ["+", "-", "*", "/", "++", "=", "$"]
 
-types = [(Type "int" 4), (Type "short" 2), (Type "byte" 1)]
+--types = [(Type "int" 4), (Type "short" 2), (Type "byte" 1)]
 typeShoRtlist = ["int", "short", "byte"]
 
 --- TOKENIZE
@@ -76,7 +77,49 @@ parse str = fst $ parseBlock $ tokenize str
 
 addAst :: Ast -> Ast -> Ast
 addAst (Block list) ast = Block (ast:list)
+{-
+parseFile :: [String] -> (Ast, [String])
+parseFile (x:xs) =
+    if 
+    where
+        (t, n) = parseDecl (x:xs)
+-}
 
+parseDecl :: [String] -> (Type, String, [String])
+parseDecl (x:xs) = (addType a (PrimType x), b, c)
+    where (a, b, c) = parseDeclReq xs
+
+parseDeclReq :: [String] -> (Type, String, [String])
+parseDeclReq ("(":xs) =
+    if (head afterDef) == ")"
+        then if (afterDef !! 1) == "("
+            then (addType def (FuncType EmptyType args), name, afterArgs)
+            else (def, name, tail afterDef)
+        else error $ "Unexpected " ++ (head afterDef) ++ ", exptected )"
+    where
+        (def, name, afterDef) = parseDeclReq xs
+        (args, afterArgs) = parseFuncArgs $ drop 2 afterDef
+
+parseDeclReq (")":xs) = (EmptyType, "", ")":xs)
+parseDeclReq (x:xs)
+    | x == "*" = (addType a (PtrType EmptyType), b, c) --       int (*r)()
+    | otherwise = (EmptyType, x, xs)
+    where
+        (a, b, c) = parseDeclReq xs
+
+addType :: Type -> Type -> Type
+addType (PrimType a) b = error ""
+addType EmptyType b = b
+addType (PtrType a) b = (PtrType (addType a b))
+addType (FuncType a c) b = (FuncType (addType a b) c)
+
+parseFuncArgs :: [String] -> ([Type], [String])
+parseFuncArgs (")":xs) = ([], xs)
+parseFuncArgs (x:xs) = (a : argList, rest)
+    where
+        (a, b, c) = parseDecl (x:xs)
+        (argList, rest) = parseFuncArgs c
+    
 parseBlock :: [String] -> (Ast, [String])
 parseBlock [] = (Block [], [])
 parseBlock ("}":xs) = (Block [], xs)
@@ -190,7 +233,7 @@ getOpFromSym :: String -> Op
 getOpFromSym sym = fromJust $ find (\ op -> symbol op == sym) operators
 
 getTypeFromSym :: String -> Type
-getTypeFromSym sym = fromJust $ find (\ n -> name n == sym) types
+getTypeFromSym sym = (PrimType sym) --fromJust $ find (\ n -> name n == sym) types
 
 --- TO Rtl
 
