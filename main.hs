@@ -21,12 +21,6 @@ data ExprElem = Operator Op | Ast Ast
 instance Show Op where
     show (Op {symbol=s}) = show s
 
---data Type = PrimType { primTypeName :: String } | PtrType { ptrTypePointsTo :: Type }
---          | FuncType { funcTypeRet :: Type, funcTypeArgs :: [Type] }
-
---instance Show Type where
---    show (Type {name=n}) = show n
-
 data Type = PrimType String | PtrType Type | FuncType Type [Type] | ArrayType Type | EmptyType
     deriving (Show)
 
