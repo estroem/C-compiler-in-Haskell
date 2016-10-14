@@ -30,7 +30,7 @@ instance Show Type where
 data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer
              | Load Reg String | Save String Reg | SaveToPtr Reg Reg | Label String
              | Cmp Reg | Jmp String | Je String | Jne String | Jle String | Jl String
-             | CallName String [Reg] Reg | CallAddr Reg [Reg] Reg
+             | CallName String [Reg] Reg | CallAddr Reg [Reg] Reg | DeRef Reg
     deriving (Show)
 type Reg = Integer
 
@@ -44,10 +44,10 @@ data Var = Var
     , varType :: Type
     }
 
-operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 1 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0)]
+operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 1 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0), (Op "$" 1 4 0)]
 extraSymbols = [";", "(", ")", "{", "}", ","]
 
-opShoRtlist = ["+", "-", "*", "/", "++", "="]
+opShoRtlist = ["+", "-", "*", "/", "++", "=", "$"]
 
 types = [(Type "int" 4), (Type "short" 2), (Type "byte" 1)]
 typeShoRtlist = ["int", "short", "byte"]
@@ -187,19 +187,15 @@ getOpFromExprElem :: ExprElem -> Op
 getOpFromExprElem (Operator op) = op
 
 getOpFromSym :: String -> Op
-getOpFromSym "+" = operators !! 0
-getOpFromSym "-" = operators !! 1
-getOpFromSym "*" = operators !! 2
-getOpFromSym "/" = operators !! 3
-getOpFromSym "++" = operators !! 4
-getOpFromSym "=" = operators !! 5
+getOpFromSym sym = fromJust $ find (\ op -> symbol op == sym) operators
 
 getTypeFromSym :: String -> Type
-getTypeFromSym "int" = types !! 0
-getTypeFromSym "short" = types !! 1
-getTypeFromSym "byte" = types !! 2
+getTypeFromSym sym = fromJust $ find (\ n -> name n == sym) types
 
 --- TO Rtl
+
+treeToRtl :: Ast -> Rtl
+treeToRtl tree = fst $ toRtl tree 0
 
 toRtl :: Ast -> Reg -> (Rtl, Reg)
 toRtl (Block []) nextReg = ([], nextReg)
@@ -219,9 +215,11 @@ toRtl (App op exprList) nextReg
     | symbol op == "*" = (expr1 ++ expr2 ++ [Mul reg2 reg1], reg2)
     | symbol op == "/" = (expr1 ++ expr2 ++ [Div reg2 reg1], reg2)
     | symbol op == "=" = handleAssign (head exprList) (last exprList) nextReg
+    | symbol op == "$" = (expr ++ [DeRef reg], reg)
         where
             (expr1, reg1) = toRtl (exprList !! 1) nextReg
             (expr2, reg2) = toRtl (exprList !! 0) reg1
+            (expr, reg) = toRtl (head exprList) nextReg
 
 toRtl (If cond thenBlock elseBlock) nextReg
     | not $ isEmpty elseBlock = (condRtl ++ [Cmp condReg, Jne ("then" ++ show condReg)] ++ elseBlockRtl ++ [Jmp ("endif" ++ show condReg), Label ("then" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0)
@@ -255,20 +253,6 @@ handleAssign (App op [addrExpr]) expr nextReg = (addrRtl ++ exprRtl ++ [SaveToPt
         (addrRtl, addrReg) = toRtl addrExpr nextReg
         (exprRtl, exprReg) = toRtl expr addrReg
 
-takeReg :: Registers -> Register -> Registers
-takeReg regs reg = take (fromIntegral reg) regs ++ [False] ++ drop (fromIntegral reg + 1) regs
-
-freeReg :: Registers -> Register -> Registers
-freeReg regs reg = take (fromIntegral reg) regs ++ [True] ++ drop (fromIntegral reg + 1) regs
-
-regAlloc :: Registers -> Register
-regAlloc regs =
-    if reg == length regs
-        then error "No more regs"
-        else toInteger reg
-    where
-        reg = length $ takeWhile (== False) regs
-
 isEmpty :: Ast -> Bool
 isEmpty (Block list) = null list
 
@@ -281,7 +265,7 @@ getName (Name name) = name
 --- COMPILE
 
 compile :: String -> Rtl
-compile str = fst $ toRtl (parse str) 0
+compile = treeToRtl . parse
 
 --- MAIN
 
