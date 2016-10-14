@@ -3,7 +3,9 @@ import Data.List
 import Data.Maybe
 import System.Environment
 
-data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | Decl Type String | If Ast Ast Ast | Call Ast [Ast]
+data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | Decl Type String
+         | If Ast Ast Ast | Call Ast [Ast] | DeclInit Type String String
+         | Func Type String [(Type, String)] Ast | File [Ast]
     deriving (Show)
 
 data Op = Op
@@ -78,13 +80,23 @@ parse str = fst $ parseBlock $ tokenize str
 
 addAst :: Ast -> Ast -> Ast
 addAst (Block list) ast = Block (ast:list)
-{-
+addAst (File list) ast = File (ast:list)
+
 parseFile :: [String] -> (Ast, [String])
-parseFile (x:xs) =
-    if 
+parseFile [] = (File [], [])
+parseFile (x:xs) = (addAst file line, final)
     where
-        (t, n) = parseDecl (x:xs)
--}
+        (line, rest) = parseTopLvlLine (x:xs)
+        (file, final) = parseFile rest
+
+parseTopLvlLine :: [String] -> (Ast, [String])
+parseTopLvlLine (x:xs) =
+    case decl of
+        (PrimType prim)      -> if (head rest) == "=" && (rest !! 2) == ";" then (DeclInit decl name (rest !! 1), drop 3 rest) else if (head rest) == ";" then (Decl decl name, tail rest) else error "Expected ; or ="
+        (PtrType ptr)        -> if (head rest) == "=" && (rest !! 2) == ";" then (DeclInit decl name (rest !! 1), drop 3 rest) else if (head rest) == ";" then (Decl decl name, tail rest) else error "Expected ; or ="
+        (FuncType func args) -> let block = parseExprOrBlock rest in (Func decl name [] (fst block), snd block)
+    where
+        (decl, name, rest) = parseDecl (x:xs)
 
 parseDecl :: [String] -> (Type, String, [String])
 parseDecl (x:xs) = (addType a (PrimType x), b, c)
@@ -128,6 +140,7 @@ parseFuncArgs (x:xs) = (a : argList, rest)
     
 parseBlock :: [String] -> (Ast, [String])
 parseBlock [] = (Block [], [])
+parseBlock (";":xs) = (Block [], xs)
 parseBlock ("}":xs) = (Block [], xs)
 parseBlock (x:xs) = (addAst (fst block) (fst expr), snd block)
     where
@@ -170,6 +183,7 @@ parseExpr (x:xs) = (prefixToTree $ infixToPrefix $ fst exprList, snd exprList)
         exprList = getExprList (x:xs)
 
 parseExprOrBlock :: [String] -> (Ast, [String])
+parseExprOrBlock (";":xs) = (Block [], xs)
 parseExprOrBlock ("{":xs) = parseBlock xs
 parseExprOrBlock (x:xs) = (fst expr, tail $ snd expr)
     where expr = parseExpr (x:xs)
@@ -305,8 +319,8 @@ handleAssign (App op [addrExpr]) expr nextReg = (addrRtl ++ exprRtl ++ [SaveToPt
 isEmpty :: Ast -> Bool
 isEmpty (Block list) = null list
 
-getConst :: Ast -> String
-getConst = head . words . show
+getTypeConst :: Type -> String
+getTypeConst = head . words . show
 
 getName :: Ast -> String
 getName (Name name) = name
