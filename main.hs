@@ -25,7 +25,7 @@ instance Show Op where
 --instance Show Type where
 --    show (Type {name=n}) = show n
 
-data Type = PrimType String | PtrType Type | FuncType Type [Type] | EmptyType
+data Type = PrimType String | PtrType Type | FuncType Type [Type] | ArrayType Type | EmptyType
     deriving (Show)
 
 data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer
@@ -90,7 +90,7 @@ parseDecl (x:xs) = (addType a (PrimType x), b, c)
     where (a, b, c) = parseDeclReq xs
 
 parseDeclReq :: [String] -> (Type, String, [String])
-parseDeclReq ("(":xs) =
+parseDeclReq ("(":xs) = 
     if (head afterDef) == ")"
         then if (afterDef !! 1) == "("
             then (addType def (FuncType EmptyType args), name, afterArgs)
@@ -101,11 +101,16 @@ parseDeclReq ("(":xs) =
         (args, afterArgs) = parseFuncArgs $ drop 2 afterDef
 
 parseDeclReq (")":xs) = (EmptyType, "", ")":xs)
-parseDeclReq (x:xs)
-    | x == "*" = (addType a (PtrType EmptyType), b, c) --       int (*r)()
-    | otherwise = (EmptyType, x, xs)
+parseDeclReq ("*":xs) = (addType a (PtrType EmptyType), b, c)
     where
         (a, b, c) = parseDeclReq xs
+
+parseDeclReq (x:xs) =
+    if (head xs) == "("
+        then ((FuncType EmptyType args), x, rest)
+        else (EmptyType, x, xs)
+    where
+        (args, rest) = parseFuncArgs $ tail xs
 
 addType :: Type -> Type -> Type
 addType (PrimType a) b = error ""
