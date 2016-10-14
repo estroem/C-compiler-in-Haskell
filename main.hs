@@ -27,15 +27,14 @@ data Type = Type
 instance Show Type where
     show (Type {name=n}) = show n
 
-data AsmFunc = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer
+data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer
              | Load Reg String | Save String Reg | SaveToPtr Reg Reg | Label String
              | Cmp Reg | Jmp String | Je String | Jne String | Jle String | Jl String
              | CallName String [Reg] Reg | CallAddr Reg [Reg] Reg
     deriving (Show)
 type Reg = Integer
 
-type AsmLine = String
-type Asm = [AsmFunc]
+type Rtl = [RtlLine]
 
 type Register = Integer
 type Registers = [Bool]
@@ -48,10 +47,10 @@ data Var = Var
 operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 1 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0)]
 extraSymbols = [";", "(", ")", "{", "}", ","]
 
-opShortList = ["+", "-", "*", "/", "++", "="]
+opShoRtlist = ["+", "-", "*", "/", "++", "="]
 
 types = [(Type "int" 4), (Type "short" 2), (Type "byte" 1)]
-typeShortList = ["int", "short", "byte"]
+typeShoRtlist = ["int", "short", "byte"]
 
 --- TOKENIZE
 
@@ -68,7 +67,7 @@ tokenize (x:xs)
     | otherwise = error $ "Illegal symbol \"" ++ [x] ++ "\""
 
 symExists :: String -> Bool
-symExists sym = elem sym (opShortList ++ extraSymbols)
+symExists sym = elem sym (opShoRtlist ++ extraSymbols)
 
 --- PARSE
 
@@ -95,7 +94,7 @@ parseLine (x:xs)
         where expr = parseExpr (x:xs)
 
 isType :: String -> Bool
-isType str = elem str typeShortList
+isType str = elem str typeShoRtlist
 
 parseIf :: [String] -> (Ast, [String])
 parseIf (x:xs) =
@@ -146,7 +145,7 @@ getExprList :: [String] -> ([ExprElem], [String])
 getExprList [] = ([], []) -- error "Unexpected end of expression"
 getExprList (x:xs)
     | x == ")" || x == "," || x == ";" = ([], (x:xs))
-    | elem x opShortList = let exprList = getExprList xs in ((Operator (getOpFromSym x)) : fst exprList, snd exprList)
+    | elem x opShoRtlist = let exprList = getExprList xs in ((Operator (getOpFromSym x)) : fst exprList, snd exprList)
     | otherwise =  let exprList = getExprList (snd expr) in ((Ast (fst expr)) : fst exprList, snd exprList)
         where
             expr = parseSingleExpr (x:xs)
@@ -200,61 +199,61 @@ getTypeFromSym "int" = types !! 0
 getTypeFromSym "short" = types !! 1
 getTypeFromSym "byte" = types !! 2
 
---- TO ASM
+--- TO Rtl
 
-toAsm :: Ast -> Reg -> (Asm, Reg)
-toAsm (Block []) nextReg = ([], nextReg)
-toAsm (Block [x]) nextReg = toAsm x nextReg
-toAsm (Block (x:xs)) nextReg = (expr ++ block, nextReg)
+toRtl :: Ast -> Reg -> (Rtl, Reg)
+toRtl (Block []) nextReg = ([], nextReg)
+toRtl (Block [x]) nextReg = toRtl x nextReg
+toRtl (Block (x:xs)) nextReg = (expr ++ block, nextReg)
     where
-        (expr, _) = toAsm x nextReg
-        (block, _) = toAsm (Block xs) nextReg
+        (expr, _) = toRtl x nextReg
+        (block, _) = toRtl (Block xs) nextReg
 
-toAsm (Number x) nextReg = ([Mov (nextReg + 1) x], nextReg + 1)
+toRtl (Number x) nextReg = ([Mov (nextReg + 1) x], nextReg + 1)
 
-toAsm (Name name) nextReg = ([Load (nextReg + 1) name], nextReg + 1)
+toRtl (Name name) nextReg = ([Load (nextReg + 1) name], nextReg + 1)
 
-toAsm (App op exprList) nextReg
+toRtl (App op exprList) nextReg
     | symbol op == "+" = (expr1 ++ expr2 ++ [Add reg2 reg1], reg2)
     | symbol op == "-" = (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
     | symbol op == "*" = (expr1 ++ expr2 ++ [Mul reg2 reg1], reg2)
     | symbol op == "/" = (expr1 ++ expr2 ++ [Div reg2 reg1], reg2)
     | symbol op == "=" = handleAssign (head exprList) (last exprList) nextReg
         where
-            (expr1, reg1) = toAsm (exprList !! 1) nextReg
-            (expr2, reg2) = toAsm (exprList !! 0) reg1
+            (expr1, reg1) = toRtl (exprList !! 1) nextReg
+            (expr2, reg2) = toRtl (exprList !! 0) reg1
 
-toAsm (If cond thenBlock elseBlock) nextReg
-    | not $ isEmpty elseBlock = (condAsm ++ [Cmp condReg, Jne ("then" ++ show condReg)] ++ elseBlockAsm ++ [Jmp ("endif" ++ show condReg), Label ("then" ++ show condReg)] ++ thenBlockAsm ++ [Label ("endif" ++ show condReg)], 0)
-    | otherwise = (condAsm ++ [Cmp condReg, Je ("endif" ++ show condReg)] ++ thenBlockAsm ++ [Label ("endif" ++ show condReg)], 0)
+toRtl (If cond thenBlock elseBlock) nextReg
+    | not $ isEmpty elseBlock = (condRtl ++ [Cmp condReg, Jne ("then" ++ show condReg)] ++ elseBlockRtl ++ [Jmp ("endif" ++ show condReg), Label ("then" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0)
+    | otherwise = (condRtl ++ [Cmp condReg, Je ("endif" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0)
     where
-        (condAsm, condReg) = toAsm cond nextReg
-        (thenBlockAsm, _) = toAsm thenBlock nextReg
-        (elseBlockAsm, _) = toAsm elseBlock nextReg
+        (condRtl, condReg) = toRtl cond nextReg
+        (thenBlockRtl, _) = toRtl thenBlock nextReg
+        (elseBlockRtl, _) = toRtl elseBlock nextReg
 
-toAsm (Call (Name name) args) nextReg = (argsAsm ++ [CallName name argRegs nextReg], nextReg)
-    where (argsAsm, argRegs) = handleCallArgs args nextReg
+toRtl (Call (Name name) args) nextReg = (argsRtl ++ [CallName name argRegs nextReg], nextReg)
+    where (argsRtl, argRegs) = handleCallArgs args nextReg
 
-toAsm (Call addr args) nextReg = (addrAsm ++ argsAsm ++ [CallAddr addrReg argRegs nextReg], nextReg)
+toRtl (Call addr args) nextReg = (addrRtl ++ argsRtl ++ [CallAddr addrReg argRegs nextReg], nextReg)
     where
-        (addrAsm, addrReg) = toAsm addr nextReg
-        (argsAsm, argRegs) = handleCallArgs args addrReg
+        (addrRtl, addrReg) = toRtl addr nextReg
+        (argsRtl, argRegs) = handleCallArgs args addrReg
 
-handleCallArgs :: [Ast] -> Reg -> (Asm, [Reg])
+handleCallArgs :: [Ast] -> Reg -> (Rtl, [Reg])
 handleCallArgs [] _ = ([], [])
-handleCallArgs (x:xs) nextReg = (argAsm ++ finalAsm, argReg : finalReg)
+handleCallArgs (x:xs) nextReg = (argRtl ++ finalRtl, argReg : finalReg)
     where
-        (argAsm, argReg) = toAsm x nextReg
-        (finalAsm, finalReg) = handleCallArgs xs argReg
+        (argRtl, argReg) = toRtl x nextReg
+        (finalRtl, finalReg) = handleCallArgs xs argReg
 
-handleAssign :: Ast -> Ast -> Reg -> (Asm, Reg)
-handleAssign (Name name) expr nextReg = (exprAsm ++ [Save name assignReg], assignReg)
-    where (exprAsm, assignReg) = toAsm expr nextReg
+handleAssign :: Ast -> Ast -> Reg -> (Rtl, Reg)
+handleAssign (Name name) expr nextReg = (exprRtl ++ [Save name assignReg], assignReg)
+    where (exprRtl, assignReg) = toRtl expr nextReg
 
-handleAssign (App op [addrExpr]) expr nextReg = (addrAsm ++ exprAsm ++ [SaveToPtr addrReg exprReg], exprReg)
+handleAssign (App op [addrExpr]) expr nextReg = (addrRtl ++ exprRtl ++ [SaveToPtr addrReg exprReg], exprReg)
     where
-        (addrAsm, addrReg) = toAsm addrExpr nextReg
-        (exprAsm, exprReg) = toAsm expr addrReg
+        (addrRtl, addrReg) = toRtl addrExpr nextReg
+        (exprRtl, exprReg) = toRtl expr addrReg
 
 takeReg :: Registers -> Register -> Registers
 takeReg regs reg = take (fromIntegral reg) regs ++ [False] ++ drop (fromIntegral reg + 1) regs
@@ -281,18 +280,18 @@ getName (Name name) = name
 
 --- COMPILE
 
-compile :: String -> Asm
-compile str = fst $ toAsm (parse str) 0
+compile :: String -> Rtl
+compile str = fst $ toRtl (parse str) 0
 
 --- MAIN
 
 --main :: IO ()
 --main = do
 --    args <- getArgs
---    printAsm $ compile $ head args
+--    printRtl $ compile $ head args
 
---printAsm [] = do
+--printRtl [] = do
     --putStr ""
---printAsm asm = do
-    --putStrLn $ head asm
-    --printAsm $ tail asm
+--printRtl Rtl = do
+    --putStrLn $ head Rtl
+    --printRtl $ tail Rtl
