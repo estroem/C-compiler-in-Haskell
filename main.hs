@@ -4,8 +4,8 @@ import Data.Maybe
 import System.Environment
 
 data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | Decl Type String
-         | If Ast Ast Ast | Call Ast [Ast] | DeclInit Type String String
-         | Func Type String [(Type, String)] Ast | File [Ast]
+         | If Ast Ast Ast | Call Ast [Ast] | Init Type String String
+         | Func Type String Ast | File [Ast]
     deriving (Show)
 
 data Op = Op
@@ -21,7 +21,7 @@ data ExprElem = Operator Op | Ast Ast
 instance Show Op where
     show (Op {symbol=s}) = show s
 
-data Type = PrimType String | PtrType Type | FuncType Type [Type] | ArrayType Type | EmptyType
+data Type = PrimType String | PtrType Type | FuncType Type [(Type, String)] | ArrayType Type | EmptyType
     deriving (Show)
 
 data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer
@@ -70,7 +70,7 @@ symExists sym = elem sym (opShoRtlist ++ extraSymbols)
 --- PARSE
 
 parse :: String -> Ast
-parse str = fst $ parseBlock $ tokenize str
+parse str = fst $ parseFile $ tokenize str
 
 addAst :: Ast -> Ast -> Ast
 addAst (Block list) ast = Block (ast:list)
@@ -86,9 +86,9 @@ parseFile (x:xs) = (addAst file line, final)
 parseTopLvlLine :: [String] -> (Ast, [String])
 parseTopLvlLine (x:xs) =
     case decl of
-        (PrimType prim)      -> if (head rest) == "=" && (rest !! 2) == ";" then (DeclInit decl name (rest !! 1), drop 3 rest) else if (head rest) == ";" then (Decl decl name, tail rest) else error "Expected ; or ="
-        (PtrType ptr)        -> if (head rest) == "=" && (rest !! 2) == ";" then (DeclInit decl name (rest !! 1), drop 3 rest) else if (head rest) == ";" then (Decl decl name, tail rest) else error "Expected ; or ="
-        (FuncType func args) -> let block = parseExprOrBlock rest in (Func decl name [] (fst block), snd block)
+        (PrimType prim)      -> if (head rest) == "=" && (rest !! 2) == ";" then (Init decl name (rest !! 1), drop 3 rest) else if (head rest) == ";" then (Decl decl name, tail rest) else error "Expected ; or ="
+        (PtrType ptr)        -> if (head rest) == "=" && (rest !! 2) == ";" then (Init decl name (rest !! 1), drop 3 rest) else if (head rest) == ";" then (Decl decl name, tail rest) else error "Expected ; or ="
+        (FuncType func args) -> let block = parseExprOrBlock rest in (Func decl name (fst block), snd block)
     where
         (decl, name, rest) = parseDecl (x:xs)
 
@@ -115,7 +115,7 @@ parseDeclReq ("*":xs) = (addType a (PtrType EmptyType), b, c)
 parseDeclReq (x:xs) =
     if (head xs) == "("
         then ((FuncType EmptyType args), x, rest)
-        else (EmptyType, x, xs)
+        else if isAlpha $ head x then (EmptyType, x, xs) else error $ "Illegal variable \"" ++ x ++ "\". Variables must start with letter"
     where
         (args, rest) = parseFuncArgs $ tail xs
 
@@ -125,9 +125,9 @@ addType EmptyType b = b
 addType (PtrType a) b = (PtrType (addType a b))
 addType (FuncType a c) b = (FuncType (addType a b) c)
 
-parseFuncArgs :: [String] -> ([Type], [String])
+parseFuncArgs :: [String] -> ([(Type, String)], [String])
 parseFuncArgs (")":xs) = ([], xs)
-parseFuncArgs (x:xs) = (a : argList, rest)
+parseFuncArgs (x:xs) = ((a, b) : argList, rest)
     where
         (a, b, c) = parseDecl (x:xs)
         (argList, rest) = parseFuncArgs c
@@ -255,6 +255,13 @@ treeToRtl :: Ast -> Rtl
 treeToRtl tree = fst $ toRtl tree 0
 
 toRtl :: Ast -> Reg -> (Rtl, Reg)
+toRtl (File []) nextReg = ([], nextReg)
+toRtl (File [x]) nextReg = toRtl x nextReg
+toRtl (File (x:xs)) nextReg = (expr ++ file, nextReg)
+    where
+        (expr, _) = toRtl x nextReg
+        (file, _) = toRtl (File xs) nextReg
+
 toRtl (Block []) nextReg = ([], nextReg)
 toRtl (Block [x]) nextReg = toRtl x nextReg
 toRtl (Block (x:xs)) nextReg = (expr ++ block, nextReg)
