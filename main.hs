@@ -394,18 +394,18 @@ getSizeWord 4 = "dword"
 
 --- COMPILE
 
-compile :: String -> Rtl
-compile = treeToRtl . parse
+compile :: String -> Asm
+compile = toAsm . treeToRtl . parse
 
 --- MAIN
 
---main :: IO ()
---main = do
---    args <- getArgs
---    printRtl $ compile $ head args
+main :: IO ()
+main = do
+    args <- getArgs
+    printAsm $ compile $ head args
 
---printRtl [] = do
-    --putStr ""
---printRtl Rtl = do
-    --putStrLn $ head Rtl
-    --printRtl $ tail Rtl
+printAsm [] = do
+    putStr ""
+printAsm asm = do
+    putStrLn $ head asm
+    printAsm $ tail asm
