@@ -4,7 +4,7 @@ import Data.Maybe
 import System.Environment
 
 data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | Decl Type String
-         | If Ast Ast Ast | Call Ast [Ast] | Init Type String String
+         | If Ast Ast Ast | Call Ast [Ast] | Init Type String Ast
          | Func Type String Ast | File [Ast]
     deriving (Show)
 
@@ -90,11 +90,12 @@ parseFile (x:xs) = (addAst file line, final)
 parseTopLvlLine :: [String] -> (Ast, [String])
 parseTopLvlLine (x:xs) =
     case decl of
-        (PrimType prim)      -> if (head rest) == "=" && (rest !! 2) == ";" then (Init decl name (rest !! 1), drop 3 rest) else if (head rest) == ";" then (Decl decl name, tail rest) else error "Expected ; or ="
-        (PtrType ptr)        -> if (head rest) == "=" && (rest !! 2) == ";" then (Init decl name (rest !! 1), drop 3 rest) else if (head rest) == ";" then (Decl decl name, tail rest) else error "Expected ; or ="
-        (FuncType func args) -> let block = parseExprOrBlock rest in (Func decl name (fst block), snd block)
+        (PrimType _)   -> if (head rest) == "=" then (Init decl name expr, tail exprRest) else if (head rest) == ";" then (Decl decl name, tail rest) else error "Expected ; or ="
+        (PtrType _)    -> if (head rest) == "=" then (Init decl name expr, tail exprRest) else if (head rest) == ";" then (Decl decl name, tail rest) else error "Expected ; or ="
+        (FuncType _ _) -> let block = parseExprOrBlock rest in (Func decl name (fst block), snd block)
     where
         (decl, name, rest) = parseDecl (x:xs)
+        (expr, exprRest) = parseExpr $ drop 1 rest
 
 parseDecl :: [String] -> (Type, String, [String])
 parseDecl (x:xs) = (addType a (PrimType x), b, c)
