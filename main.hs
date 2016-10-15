@@ -25,9 +25,10 @@ data Type = PrimType String | PtrType Type | FuncType Type [(Type, String)] | Ar
     deriving (Show)
 
 data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer
-             | Load Reg String | Save String Reg | SaveToPtr Reg Reg | Label String
+             | Load Reg String | Save String Reg | SaveToPtr Reg Reg Integer | Label String
              | Cmp Reg | Jmp String | Je String | Jne String | Jle String | Jl String
              | CallName String [Reg] Reg | CallAddr Reg [Reg] Reg | DeRef Reg
+             | FuncStart String | FuncEnd String | Return
     deriving (Show)
 type Reg = Integer
 
@@ -40,6 +41,9 @@ data Var = Var
     { varName :: String
     , varType :: Type
     }
+
+type AsmLine = String
+type Asm = [AsmLine]
 
 operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 1 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0), (Op "$" 1 4 0)]
 extraSymbols = [";", "(", ")", "{", "}", ","]
@@ -301,6 +305,10 @@ toRtl (Call addr args) nextReg = (addrRtl ++ argsRtl ++ [CallAddr addrReg argReg
         (addrRtl, addrReg) = toRtl addr nextReg
         (argsRtl, argRegs) = handleCallArgs args addrReg
 
+toRtl (Func funcType name body) nextReg = ((FuncStart name) : bodyRtl ++ [Return], nextReg)
+    where
+        (bodyRtl, _) = toRtl body nextReg
+
 handleCallArgs :: [Ast] -> Reg -> (Rtl, [Reg])
 handleCallArgs [] _ = ([], [])
 handleCallArgs (x:xs) nextReg = (argRtl ++ finalRtl, argReg : finalReg)
@@ -312,7 +320,7 @@ handleAssign :: Ast -> Ast -> Reg -> (Rtl, Reg)
 handleAssign (Name name) expr nextReg = (exprRtl ++ [Save name assignReg], assignReg)
     where (exprRtl, assignReg) = toRtl expr nextReg
 
-handleAssign (App op [addrExpr]) expr nextReg = (addrRtl ++ exprRtl ++ [SaveToPtr addrReg exprReg], exprReg)
+handleAssign (App op [addrExpr]) expr nextReg = (addrRtl ++ exprRtl ++ [SaveToPtr addrReg exprReg 4], exprReg)
     where
         (addrRtl, addrReg) = toRtl addrExpr nextReg
         (exprRtl, exprReg) = toRtl expr addrReg
@@ -325,6 +333,64 @@ getTypeConst = head . words . show
 
 getName :: Ast -> String
 getName (Name name) = name
+
+--- TO ASM
+
+toAsm :: Rtl -> Asm
+toAsm = fst . toAsmReq
+
+toAsmReq :: Rtl -> (Asm, Rtl)
+toAsmReq [] = ([], [])
+toAsmReq (x:xs) = ((toAsmLine x) ++ asm, rest)
+    where
+        (asm, rest) = toAsmReq xs
+
+toAsmLine :: RtlLine -> Asm
+toAsmLine (Add reg1 reg2) = ["add " ++ getReg reg1 ++ ", " ++ getReg reg2]
+toAsmLine (Sub reg1 reg2) = ["sub " ++ getReg reg1 ++ ", " ++ getReg reg2]
+toAsmLine (Mul reg1 reg2) = ["mul " ++ getReg reg1 ++ ", " ++ getReg reg2]
+toAsmLine (Div reg1 reg2) = ["div " ++ getReg reg1 ++ ", " ++ getReg reg2]
+toAsmLine (Mov reg i)     = ["mov " ++ getReg reg  ++ ", " ++ show i]
+toAsmLine (Load reg name) = ["mov " ++ getReg reg  ++ ", [" ++ getVarAddr name ++ "]"]
+toAsmLine (Save name reg) = ["mov " ++ (getSizeWord . getVarSize . getVarType $ name) ++ " ptr [" ++ getVarAddr name ++ "], " ++ getReg reg]
+toAsmLine (SaveToPtr reg1 reg2 size) = ["mov " ++ (getSizeWord size) ++ " ptr [" ++ getReg reg1 ++ "], " ++ getReg reg2]
+toAsmLine (Label name)    = [name ++ ":"]
+toAsmLine (Cmp reg)       = ["cmp " ++ getReg reg ++ ", 0"]
+toAsmLine (Jmp label)     = ["jmp " ++ label]
+toAsmLine (Je label)      = ["je " ++ label]
+toAsmLine (Jne label)     = ["jne " ++ label]
+toAsmLine (Jle label)     = ["jle " ++ label]
+toAsmLine (Jl label)      = ["jl " ++ label]
+toAsmLine (CallName name args _) = (pushArgsAsm args) ++ ["call " ++ name, "add esp, " ++ show (length args * 4)]
+toAsmLine (CallAddr addr args _) = (pushArgsAsm args) ++ ["call " ++ getReg addr, "add esp, " ++ show (length args * 4)]
+toAsmLine (DeRef reg)     = ["mov " ++ getReg reg ++ ", [" ++ getReg reg ++ "]"]
+toAsmLine (FuncStart name) = [name ++ ":", "push ebp", "mov ebp, esp"]
+toAsmLine (FuncEnd name)  = []
+toAsmLine (Return)        = ["ret"]
+
+pushArgsAsm :: [Reg] -> Asm
+pushArgsAsm regs = pushArgsAsmLoop regs []
+    where
+        pushArgsAsmLoop (x:xs) asm = pushArgsAsmLoop xs (("push " ++ getReg x):asm)
+        pushArgsAsmLoop [] asm = asm
+
+getReg :: Reg -> String
+getReg 0 = "rax"
+getReg 1 = "rbx"
+getReg 2 = "rcx"
+getReg 3 = "rdx"
+
+getVarType :: String -> String
+getVarType "var" = "int"
+
+getVarAddr :: String -> String
+getVarAddr "var" = "var"
+
+getVarSize :: String -> Integer
+getVarSize "int" = 4
+
+getSizeWord :: Integer -> String
+getSizeWord 4 = "dword"
 
 --- COMPILE
 
