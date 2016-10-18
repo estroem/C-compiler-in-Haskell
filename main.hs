@@ -28,7 +28,8 @@ data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg I
              | Load Reg String | Save String Reg | SaveToPtr Reg Reg Integer | Label String
              | Cmp Reg | Jmp String | Je String | Jne String | Jle String | Jl String
              | CallName String [Reg] Reg | CallAddr Reg [Reg] Reg | DeRef Reg
-             | FuncStart String | FuncEnd String | Return
+             | FuncStart String | FuncEnd String | Return | Push Reg | LoadLoc Reg Integer
+             | SaveLoc Integer Reg
     deriving (Show)
 type Reg = Integer
 
@@ -335,78 +336,20 @@ getTypeConst = head . words . show
 getName :: Ast -> String
 getName (Name name) = name
 
---- TO ASM
-
-toAsm :: Rtl -> Asm
-toAsm = fst . toAsmReq
-
-toAsmReq :: Rtl -> (Asm, Rtl)
-toAsmReq [] = ([], [])
-toAsmReq (x:xs) = ((toAsmLine x) ++ asm, rest)
-    where
-        (asm, rest) = toAsmReq xs
-
-toAsmLine :: RtlLine -> Asm
-toAsmLine (Add reg1 reg2) = ["add " ++ getReg reg1 ++ ", " ++ getReg reg2]
-toAsmLine (Sub reg1 reg2) = ["sub " ++ getReg reg1 ++ ", " ++ getReg reg2]
-toAsmLine (Mul reg1 reg2) = ["mul " ++ getReg reg1 ++ ", " ++ getReg reg2]
-toAsmLine (Div reg1 reg2) = ["div " ++ getReg reg1 ++ ", " ++ getReg reg2]
-toAsmLine (Mov reg i)     = ["mov " ++ getReg reg  ++ ", " ++ show i]
-toAsmLine (Load reg name) = ["mov " ++ getReg reg  ++ ", [" ++ getVarAddr name ++ "]"]
-toAsmLine (Save name reg) = ["mov " ++ (getSizeWord . getVarSize . getVarType $ name) ++ " ptr [" ++ getVarAddr name ++ "], " ++ getReg reg]
-toAsmLine (SaveToPtr reg1 reg2 size) = ["mov " ++ (getSizeWord size) ++ " ptr [" ++ getReg reg1 ++ "], " ++ getReg reg2]
-toAsmLine (Label name)    = [name ++ ":"]
-toAsmLine (Cmp reg)       = ["cmp " ++ getReg reg ++ ", 0"]
-toAsmLine (Jmp label)     = ["jmp " ++ label]
-toAsmLine (Je label)      = ["je " ++ label]
-toAsmLine (Jne label)     = ["jne " ++ label]
-toAsmLine (Jle label)     = ["jle " ++ label]
-toAsmLine (Jl label)      = ["jl " ++ label]
-toAsmLine (CallName name args _) = (pushArgsAsm args) ++ ["call " ++ name, "add esp, " ++ show (length args * 4)]
-toAsmLine (CallAddr addr args _) = (pushArgsAsm args) ++ ["call " ++ getReg addr, "add esp, " ++ show (length args * 4)]
-toAsmLine (DeRef reg)     = ["mov " ++ getReg reg ++ ", [" ++ getReg reg ++ "]"]
-toAsmLine (FuncStart name) = [name ++ ":", "push ebp", "mov ebp, esp"]
-toAsmLine (FuncEnd name)  = []
-toAsmLine (Return)        = ["ret"]
-
-pushArgsAsm :: [Reg] -> Asm
-pushArgsAsm regs = pushArgsAsmLoop regs []
-    where
-        pushArgsAsmLoop (x:xs) asm = pushArgsAsmLoop xs (("push " ++ getReg x):asm)
-        pushArgsAsmLoop [] asm = asm
-
-getReg :: Reg -> String
-getReg 0 = "rax"
-getReg 1 = "rbx"
-getReg 2 = "rcx"
-getReg 3 = "rdx"
-
-getVarType :: String -> String
-getVarType "var" = "int"
-
-getVarAddr :: String -> String
-getVarAddr "var" = "var"
-
-getVarSize :: String -> Integer
-getVarSize "int" = 4
-
-getSizeWord :: Integer -> String
-getSizeWord 4 = "dword"
-
 --- COMPILE
 
-compile :: String -> Asm
-compile = toAsm . treeToRtl . parse
+compile :: String -> (Rtl, Scope)
+compile = treeToRtl . parse
 
 --- MAIN
 
 main :: IO ()
 main = do
     args <- getArgs
-    printAsm $ compile $ head args
+    printRtl $ fst $ compile $ head args
 
-printAsm [] = do
+printRtl [] = do
     putStr ""
-printAsm asm = do
-    putStrLn $ head asm
-    printAsm $ tail asm
+printRtl rtl = do
+    putStrLn $ show $ head rtl
+    printRtl $ tail rtl
