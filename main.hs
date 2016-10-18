@@ -29,7 +29,7 @@ data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg I
              | Cmp Reg | Jmp String | Je String | Jne String | Jle String | Jl String
              | CallName String [Reg] Reg | CallAddr Reg [Reg] Reg | DeRef Reg
              | FuncStart String | FuncEnd String | Return | Push Reg | LoadLoc Reg Integer
-             | SaveLoc Integer Reg
+             | SaveLoc Integer Reg | Pop Reg
     deriving (Show)
 type Reg = Integer
 
@@ -394,7 +394,7 @@ toRtl (Func (FuncType retType argTypes) name body) nextReg scope = ([Label name,
                                                                     (if (length ls) > 0
                                                                         then [Add reg_esp (toInteger (length ls) * 4)]
                                                                         else []) ++
-                                                                    [Return],
+                                                                    [Pop reg_ebp, Return],
                                                                     nextReg, (Scope [] ss [] [] [Fun name retType argTypes]))
     where
         (bodyRtl, _, (Scope _ ss _ ls _)) = toRtl body nextReg (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] []), scope])
