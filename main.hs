@@ -3,7 +3,7 @@ import Data.List
 import Data.Maybe
 import System.Environment
 
-data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | Decl Type String
+data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | Decl Type String Bool Bool
          | If Ast Ast Ast | Call Ast [Ast] | Init Type String Ast
          | Func Type String Ast | File [Ast]
     deriving (Show)
@@ -41,7 +41,17 @@ type Registers = [Bool]
 data Var = Var
     { varName :: String
     , varType :: Type
-    }
+    } deriving (Show)
+
+data Fun = Fun
+    { funName :: String
+    , funRetType :: Type
+    , funArgs :: [(Type, String)]
+    } deriving (Show)
+
+--           Scope globals statics locals functions
+data Scope = Scope [Var] [Var] [Var] [Fun]
+    deriving (Show)
 
 type AsmLine = String
 type Asm = [AsmLine]
@@ -91,8 +101,8 @@ parseFile (x:xs) = (addAst file line, final)
 parseTopLvlLine :: [String] -> (Ast, [String])
 parseTopLvlLine (x:xs) =
     case decl of
-        (PrimType _)   -> if (head rest) == "=" then (Init decl name expr, tail exprRest) else if (head rest) == ";" then (Decl decl name, tail rest) else error "Expected ; or ="
-        (PtrType _)    -> if (head rest) == "=" then (Init decl name expr, tail exprRest) else if (head rest) == ";" then (Decl decl name, tail rest) else error "Expected ; or ="
+        (PrimType _)   -> if (head rest) == "=" then (Init decl name expr, tail exprRest) else if (head rest) == ";" then (Decl decl name True False, tail rest) else error "Expected ; or ="
+        (PtrType _)    -> if (head rest) == "=" then (Init decl name expr, tail exprRest) else if (head rest) == ";" then (Decl decl name True False, tail rest) else error "Expected ; or ="
         (FuncType _ _) -> let block = parseExprOrBlock rest in (Func decl name (fst block), snd block)
     where
         (decl, name, rest) = parseDecl (x:xs)
@@ -151,7 +161,7 @@ parseLine :: [String] -> (Ast, [String])
 parseLine [] = (undefined, [])
 parseLine ("if":"(":xs) = parseIf xs
 parseLine (x:xs)
-    | isType x && length xs > 0 && all isAlpha (head xs) = (Decl (getTypeFromSym x) (head xs), xs)
+    | isType x && length xs > 0 && all isAlpha (head xs) = (Decl (getTypeFromSym x) (head xs) False False, xs)
     | otherwise = (fst expr, drop 1 $ snd expr)
         where expr = parseExpr (x:xs)
 
@@ -257,75 +267,134 @@ getTypeFromSym sym = (PrimType sym) --fromJust $ find (\ n -> name n == sym) typ
 
 --- TO Rtl
 
-treeToRtl :: Ast -> Rtl
-treeToRtl tree = fst $ toRtl tree 0
+emptyScope :: Scope
+emptyScope = (Scope [] [] [] [])
 
-toRtl :: Ast -> Reg -> (Rtl, Reg)
-toRtl (File []) nextReg = ([], nextReg)
-toRtl (File [x]) nextReg = toRtl x nextReg
-toRtl (File (x:xs)) nextReg = (expr ++ file, nextReg)
+scopeAddGlo :: Scope -> Var -> Scope
+scopeAddGlo (Scope gs ss ls fs) v = (Scope (v:gs) ss ls fs)
+
+scopeAddStc :: Scope -> Var -> Scope
+scopeAddStc (Scope gs ss ls fs) v = (Scope gs (v:ss) ls fs)
+
+scopeAddLoc :: Scope -> Var -> Scope
+scopeAddLoc (Scope gs ss ls fs) v = (Scope gs ss (v:ls) fs)
+
+scopeAddFun :: Scope -> Fun -> Scope
+scopeAddFun (Scope gs ss ls fs) f = (Scope gs ss ls (f:fs))
+
+localOffset :: Scope -> String -> Maybe Integer
+localOffset (Scope _ _ ls _) n =
+    let i = findIndex (\ v -> (varName v) == n) ls in
+        if isJust i
+            then Just (toInteger $ fromJust i)
+            else Nothing
+
+scopeHasVar :: Scope -> String -> Bool
+scopeHasVar (Scope gs ss ls fs) name = any (\ v -> (varName v) == name) gs || any (\ v -> (varName v) == name) ss || any (\ v -> (varName v) == name) ls
+
+scopeHasFun :: Scope -> String -> Bool
+scopeHasFun (Scope gs ss ls fs) name = any (\ f -> (funName f) == name) fs
+
+joinScopes :: [Scope] -> Scope
+joinScopes list = joinScopesLoop list emptyScope where
+    joinScopesLoop ((Scope gs ss ls fs):xs) (Scope rgs rss rls rfs) =
+        joinScopesLoop xs (Scope (gs ++ rgs) (ss ++ rss) (ls ++ rls) (fs ++ rfs))
+    joinScopesLoop [] res = res
+
+treeToRtl :: Ast -> (Rtl, Scope)
+treeToRtl tree = let (a, b, c) = toRtl tree 0 emptyScope in (a, c)
+
+toRtl :: Ast -> Reg -> Scope -> (Rtl, Reg, Scope)
+toRtl (File []) nextReg scope = ([], nextReg, emptyScope)
+toRtl (File [x]) nextReg scope = toRtl x nextReg scope
+toRtl (File (x:xs)) nextReg scope = (expr ++ file, nextReg, joinScopes [scope1, scope2])
     where
-        (expr, _) = toRtl x nextReg
-        (file, _) = toRtl (File xs) nextReg
+        (expr, _, scope1) = toRtl x nextReg scope
+        (file, _, scope2) = toRtl (File xs) nextReg (joinScopes [scope, scope1])
 
-toRtl (Block []) nextReg = ([], nextReg)
-toRtl (Block [x]) nextReg = toRtl x nextReg
-toRtl (Block (x:xs)) nextReg = (expr ++ block, nextReg)
+toRtl (Block []) nextReg scope = ([], nextReg, emptyScope)
+toRtl (Block [x]) nextReg scope = let (a, b, _) = toRtl x nextReg scope in (a, b, emptyScope)
+toRtl (Block (x:xs)) nextReg scope = (expr ++ block, nextReg, emptyScope)
     where
-        (expr, _) = toRtl x nextReg
-        (block, _) = toRtl (Block xs) nextReg
+        (expr, _, scope1) = toRtl x nextReg scope
+        (block, _, _) = toRtl (Block xs) nextReg (joinScopes [scope, scope1])
 
-toRtl (Number x) nextReg = ([Mov (nextReg + 1) x], nextReg + 1)
+toRtl (Number x) nextReg scope = ([Mov (nextReg + 1) x], nextReg + 1, emptyScope)
 
-toRtl (Name name) nextReg = ([Load (nextReg + 1) name], nextReg + 1)
+toRtl (Name name) nextReg scope =
+    if scopeHasVar scope name
+        then let i = localOffset scope name in
+            if isJust i
+                then ([LoadLoc (nextReg + 1) (fromJust i)], nextReg + 1, emptyScope)
+                else ([Load (nextReg + 1) name], nextReg + 1, emptyScope)
+        else error $ "Variable not in scope: " ++ name
 
-toRtl (App op exprList) nextReg
-    | symbol op == "+" = (expr1 ++ expr2 ++ [Add reg2 reg1], reg2)
-    | symbol op == "-" = (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
-    | symbol op == "*" = (expr1 ++ expr2 ++ [Mul reg2 reg1], reg2)
-    | symbol op == "/" = (expr1 ++ expr2 ++ [Div reg2 reg1], reg2)
-    | symbol op == "=" = handleAssign (head exprList) (last exprList) nextReg
-    | symbol op == "$" = (expr ++ [DeRef reg], reg)
+toRtl (Decl t n g s) nextReg scope = ([], nextReg, (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t))
+
+toRtl (App op exprList) nextReg scope
+    | symbol op == "+" = (expr1 ++ expr2 ++ [Add reg2 reg1], reg2, emptyScope)
+    | symbol op == "-" = (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2, emptyScope)
+    | symbol op == "*" = (expr1 ++ expr2 ++ [Mul reg2 reg1], reg2, emptyScope)
+    | symbol op == "/" = (expr1 ++ expr2 ++ [Div reg2 reg1], reg2, emptyScope)
+    | symbol op == "=" = let (a, b) = handleAssign (head exprList) (last exprList) nextReg scope in (a, b, emptyScope)
+    | symbol op == "$" = (expr ++ [DeRef reg], reg, emptyScope)
         where
-            (expr1, reg1) = toRtl (exprList !! 1) nextReg
-            (expr2, reg2) = toRtl (exprList !! 0) reg1
-            (expr, reg) = toRtl (head exprList) nextReg
+            (expr1, reg1, _) = toRtl (exprList !! 1) nextReg scope
+            (expr2, reg2, _) = toRtl (exprList !! 0) reg1 scope
+            (expr, reg, _) = toRtl (head exprList) nextReg scope
 
-toRtl (If cond thenBlock elseBlock) nextReg
-    | not $ isEmpty elseBlock = (condRtl ++ [Cmp condReg, Jne ("then" ++ show condReg)] ++ elseBlockRtl ++ [Jmp ("endif" ++ show condReg), Label ("then" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0)
-    | otherwise = (condRtl ++ [Cmp condReg, Je ("endif" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0)
+toRtl (If cond thenBlock elseBlock) nextReg scope
+    | not $ isEmpty elseBlock = (condRtl ++ [Cmp condReg, Jne ("then" ++ show condReg)] ++ elseBlockRtl ++ [Jmp ("endif" ++ show condReg), Label ("then" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0, joinScopes [thenNewVars, elseNewVars])
+    | otherwise = (condRtl ++ [Cmp condReg, Je ("endif" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0, thenNewVars)
     where
-        (condRtl, condReg) = toRtl cond nextReg
-        (thenBlockRtl, _) = toRtl thenBlock nextReg
-        (elseBlockRtl, _) = toRtl elseBlock nextReg
+        (condRtl, condReg, _) = toRtl cond nextReg scope
+        (thenBlockRtl, _, thenNewVars) = toRtl thenBlock nextReg scope
+        (elseBlockRtl, _, elseNewVars) = toRtl elseBlock nextReg scope
 
-toRtl (Call (Name name) args) nextReg = (argsRtl ++ [CallName name argRegs nextReg], nextReg)
-    where (argsRtl, argRegs) = handleCallArgs args nextReg
+toRtl (Call (Name name) args) nextReg scope = (argsRtl ++ handleArgPush argRegs ++ [CallName name argRegs nextReg] ++ [Add (-1) (toInteger $ length args)], nextReg, emptyScope)
+    where (argsRtl, argRegs) = handleCallArgs args nextReg scope
 
-toRtl (Call addr args) nextReg = (addrRtl ++ argsRtl ++ [CallAddr addrReg argRegs nextReg], nextReg)
+toRtl (Call addr args) nextReg scope = (addrRtl ++ argsRtl ++ handleArgPush argRegs ++ [CallAddr addrReg argRegs nextReg] ++ [Add (-1) (toInteger $ length args)], nextReg, emptyScope)
     where
-        (addrRtl, addrReg) = toRtl addr nextReg
-        (argsRtl, argRegs) = handleCallArgs args addrReg
+        (addrRtl, addrReg, _) = toRtl addr nextReg scope
+        (argsRtl, argRegs) = handleCallArgs args addrReg scope
 
-toRtl (Func funcType name body) nextReg = ((FuncStart name) : bodyRtl ++ [Return], nextReg)
+toRtl (Func (FuncType retType argTypes) name body) nextReg scope = ((FuncStart name) : bodyRtl ++ [Return], nextReg, (Scope [] ss [] [Fun name retType argTypes]))
     where
-        (bodyRtl, _) = toRtl body nextReg
+        (bodyRtl, _, (Scope _ ss ls _)) = toRtl body nextReg (joinScopes [(Scope [] [] (argTypesToVars argTypes) []), scope])
+        argLenth = toInteger (length ls)
 
-handleCallArgs :: [Ast] -> Reg -> (Rtl, [Reg])
-handleCallArgs [] _ = ([], [])
-handleCallArgs (x:xs) nextReg = (argRtl ++ finalRtl, argReg : finalReg)
+argTypesToVars :: [(Type, String)] -> [Var]
+argTypesToVars list = argTypesToVarsLoop list [] where
+    argTypesToVarsLoop ((t,n):xs) res = argTypesToVarsLoop xs (res ++ [Var n t])
+    argTypesToVarsLoop [] res = res
+
+handleArgPush :: [Reg] -> Rtl
+handleArgPush regs = handleArgPushLoop regs [] where
+    handleArgPushLoop (x:xs) rtl = handleArgPushLoop xs ((Push x):rtl)
+    handleArgPushLoop [] rtl = rtl
+
+handleCallArgs :: [Ast] -> Reg -> Scope -> (Rtl, [Reg])
+handleCallArgs [] _ _ = ([], [])
+handleCallArgs (x:xs) nextReg scope = (argRtl ++ finalRtl, argReg : finalReg)
     where
-        (argRtl, argReg) = toRtl x nextReg
-        (finalRtl, finalReg) = handleCallArgs xs argReg
+        (argRtl, argReg, _) = toRtl x nextReg scope
+        (finalRtl, finalReg) = handleCallArgs xs argReg scope
 
-handleAssign :: Ast -> Ast -> Reg -> (Rtl, Reg)
-handleAssign (Name name) expr nextReg = (exprRtl ++ [Save name assignReg], assignReg)
-    where (exprRtl, assignReg) = toRtl expr nextReg
+handleAssign :: Ast -> Ast -> Reg -> Scope -> (Rtl, Reg)
+handleAssign (Name name) expr nextReg scope =
+    if scopeHasVar scope name
+        then let i = localOffset scope name in
+            if isJust i
+                then (exprRtl ++ [SaveLoc (fromJust i) assignReg], assignReg)
+                else (exprRtl ++ [Save name assignReg], assignReg)
+        else error $ "Variable not in scope: " ++ name
+    where (exprRtl, assignReg, _) = toRtl expr nextReg scope
 
-handleAssign (App op [addrExpr]) expr nextReg = (addrRtl ++ exprRtl ++ [SaveToPtr addrReg exprReg 4], exprReg)
+handleAssign (App op [addrExpr]) expr nextReg scope = (addrRtl ++ exprRtl ++ [SaveToPtr addrReg exprReg 4], exprReg)
     where
-        (addrRtl, addrReg) = toRtl addrExpr nextReg
-        (exprRtl, exprReg) = toRtl expr addrReg
+        (addrRtl, addrReg, _) = toRtl addrExpr nextReg scope
+        (exprRtl, exprReg, _) = toRtl expr addrReg scope
 
 isEmpty :: Ast -> Bool
 isEmpty (Block list) = null list
