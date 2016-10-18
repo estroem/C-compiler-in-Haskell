@@ -25,7 +25,7 @@ data Type = PrimType String | PtrType Type | FuncType Type [(Type, String)] | Ar
     deriving (Show)
 
 data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer
-             | Load Reg String | Save String Reg | SaveToPtr Reg Reg Integer | Label String
+             | Load Reg String | Save String Reg Integer | SaveToPtr Reg Reg Integer | Label String
              | Cmp Reg | Jmp String | Je String | Jne String | Jle String | Jl String
              | CallName String [Reg] Reg | CallAddr Reg [Reg] Reg | DeRef Reg
              | FuncStart String | FuncEnd String | Return | Push Reg | LoadLoc Reg Integer
@@ -423,7 +423,7 @@ handleAssign (Name name) expr nextReg scope =
         then let i = getOffset scope name in
             if isJust i
                 then (exprRtl ++ [SaveLoc (fromJust i) assignReg], assignReg)
-                else (exprRtl ++ [Save name assignReg], assignReg)
+                else (exprRtl ++ [Save name assignReg 4], assignReg)
         else error $ "Variable not in scope: " ++ name
     where (exprRtl, assignReg, _) = toRtl expr nextReg scope
 
@@ -441,20 +441,70 @@ getTypeConst = head . words . show
 getName :: Ast -> String
 getName (Name name) = name
 
+-- TO ASM
+
+toAsm :: Rtl -> [Var] -> Asm
+toAsm r s = (fst $ toAsmReq r)
+
+toAsmReq :: Rtl -> (Asm, Rtl)
+toAsmReq [] = ([], [])
+toAsmReq (x:xs) = ((toAsmLine x) ++ asm, rest)
+    where
+        (asm, rest) = toAsmReq xs
+
+toAsmLine :: RtlLine -> Asm
+toAsmLine (Add reg1 reg2)            = ["add " ++ getReg reg1 ++ ", " ++ getReg reg2]
+toAsmLine (Sub reg1 reg2)            = ["sub " ++ getReg reg1 ++ ", " ++ getReg reg2]
+toAsmLine (Mul reg1 reg2)            = ["mul " ++ getReg reg1 ++ ", " ++ getReg reg2]
+toAsmLine (Div reg1 reg2)            = ["div " ++ getReg reg1 ++ ", " ++ getReg reg2]
+toAsmLine (Mov reg i)                = ["mov " ++ getReg reg  ++ ", " ++ show i]
+toAsmLine (Load reg name)            = ["mov " ++ getReg reg  ++ ", [" ++ name ++ "]"]
+toAsmLine (Save name reg size)       = ["mov " ++ (getSizeWord size) ++ " ptr [" ++ name ++ "], " ++ getReg reg]
+toAsmLine (SaveToPtr reg1 reg2 size) = ["mov " ++ (getSizeWord size) ++ " ptr [" ++ getReg reg1 ++ "], " ++ getReg reg2]
+toAsmLine (Label name)               = [name ++ ":"]
+toAsmLine (Cmp reg)                  = ["cmp " ++ getReg reg ++ ", 0"]
+toAsmLine (Jmp label)                = ["jmp " ++ label]
+toAsmLine (Je label)                 = ["je " ++ label]
+toAsmLine (Jne label)                = ["jne " ++ label]
+toAsmLine (Jle label)                = ["jle " ++ label]
+toAsmLine (Jl label)                 = ["jl " ++ label]
+toAsmLine (CallName name args _)     = ["call " ++ name]
+toAsmLine (CallAddr addr args _)     = ["call " ++ getReg addr]
+toAsmLine (DeRef reg)                = ["mov " ++ getReg reg ++ ", [" ++ getReg reg ++ "]"]
+toAsmLine (Return)                   = ["ret"]
+toAsmLine (Push reg)                 = ["push " ++ getReg reg]
+toAsmLine (Pop reg)                  = ["pop " ++ getReg reg]
+toAsmLine (LoadLoc reg offset)       = ["mov " ++ getReg reg ++ ", [esp" ++ (if offset > 0 then "+" else "") ++ show offset ++ "]"]
+toAsmLine (SaveLoc offset reg)       = ["mov [esp" ++ (if offset > 0 then "+" else "") ++ show offset ++ "], " ++ getReg reg]
+
+getReg :: Reg -> String
+getReg (-2) = "ebp"
+getReg (-1) = "esp"
+getReg 1 = "rax"
+getReg 2 = "rbx"
+getReg 3 = "rcx"
+getReg 4 = "rdx"
+
+getSizeWord :: Integer -> String
+getSizeWord 1 = "byte"
+getSizeWord 2 = "word"
+getSizeWord 4 = "dword"
+
 --- COMPILE
 
-compile :: String -> (Rtl, Scope)
-compile = treeToRtl . parse
+compile :: String -> Asm
+compile str = toAsm rtl (gs ++ ss)
+    where (rtl, (Scope gs ss _ _ _)) = treeToRtl $ parse $ str
 
 --- MAIN
 
 main :: IO ()
 main = do
     args <- getArgs
-    printRtl $ fst $ compile $ head args
+    printAsm $ compile $ head args
 
-printRtl [] = do
+printAsm [] = do
     putStr ""
-printRtl rtl = do
-    putStrLn $ show $ head rtl
-    printRtl $ tail rtl
+printAsm asm = do
+    putStrLn $ head asm
+    printAsm $ tail asm
