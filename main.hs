@@ -151,6 +151,7 @@ addType (FuncType a c) b = (FuncType (addType a b) c)
 
 parseFuncArgs :: [String] -> ([(Type, String)], [String])
 parseFuncArgs (")":xs) = ([], xs)
+parseFuncArgs (",":xs) = parseFuncArgs xs
 parseFuncArgs (x:xs) = ((a, b) : argList, rest)
     where
         (a, b, c) = parseDecl (x:xs)
