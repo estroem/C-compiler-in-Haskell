@@ -49,6 +49,11 @@ data Fun = Fun
     , funArgs :: [(Type, String)]
     } deriving (Show)
 
+reg_ebp :: Integer
+reg_ebp = -2
+reg_esp :: Integer
+reg_esp = -1
+
 --           Scope globals statics locals functions
 data Scope = Scope [Var] [Var] [Var] [Var] [Fun]
     deriving (Show)
@@ -322,11 +327,11 @@ toRtl (File (x:xs)) nextReg scope = (expr ++ file, nextReg, joinScopes [scope1, 
         (file, _, scope2) = toRtl (File xs) nextReg (joinScopes [scope, scope1])
 
 toRtl (Block []) nextReg scope = ([], nextReg, emptyScope)
-toRtl (Block [x]) nextReg scope = let (a, b, _) = toRtl x nextReg scope in (a, b, emptyScope)
-toRtl (Block (x:xs)) nextReg scope = (expr ++ block, nextReg, emptyScope)
+toRtl (Block [x]) nextReg scope = toRtl x nextReg scope
+toRtl (Block (x:xs)) nextReg scope = (expr ++ block, nextReg, joinScopes [scope1, scope2])
     where
         (expr, _, scope1) = toRtl x nextReg scope
-        (block, _, _) = toRtl (Block xs) nextReg (joinScopes [scope, scope1])
+        (block, _, scope2) = toRtl (Block xs) nextReg (joinScopes [scope, scope1])
 
 toRtl (Number x) nextReg scope = ([Mov (nextReg + 1) x], nextReg + 1, emptyScope)
 
@@ -353,25 +358,46 @@ toRtl (App op exprList) nextReg scope
             (expr, reg, _) = toRtl (head exprList) nextReg scope
 
 toRtl (If cond thenBlock elseBlock) nextReg scope
-    | not $ isEmpty elseBlock = (condRtl ++ [Cmp condReg, Jne ("then" ++ show condReg)] ++ elseBlockRtl ++ [Jmp ("endif" ++ show condReg), Label ("then" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0, joinScopes [thenNewVars, elseNewVars])
+    | not $ isEmpty elseBlock = (condRtl ++
+                                 [Cmp condReg, Jne ("then" ++ show condReg)] ++
+                                 elseBlockRtl ++
+                                 [Jmp ("endif" ++ show condReg),
+                                 Label ("then" ++ show condReg)] ++
+                                 thenBlockRtl ++
+                                 [Label ("endif" ++ show condReg)],
+                                 0, joinScopes [thenNewVars, elseNewVars])
     | otherwise = (condRtl ++ [Cmp condReg, Je ("endif" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0, thenNewVars)
     where
         (condRtl, condReg, _) = toRtl cond nextReg scope
         (thenBlockRtl, _, thenNewVars) = toRtl thenBlock nextReg scope
         (elseBlockRtl, _, elseNewVars) = toRtl elseBlock nextReg scope
 
-toRtl (Call (Name name) args) nextReg scope = (argsRtl ++ handleArgPush argRegs ++ [CallName name argRegs nextReg] ++ [Add (-1) (toInteger $ length args)], nextReg, emptyScope)
+toRtl (Call (Name name) args) nextReg scope = (argsRtl ++
+                                               handleArgPush argRegs ++
+                                               [CallName name argRegs nextReg] ++
+                                               [Add reg_esp (toInteger $ length args)],
+                                               nextReg, emptyScope)
     where (argsRtl, argRegs) = handleCallArgs args nextReg scope
 
-toRtl (Call addr args) nextReg scope = (addrRtl ++ argsRtl ++ handleArgPush argRegs ++ [CallAddr addrReg argRegs nextReg] ++ [Add (-1) (toInteger $ length args)], nextReg, emptyScope)
+toRtl (Call addr args) nextReg scope = (addrRtl ++
+                                        argsRtl ++
+                                        handleArgPush argRegs ++
+                                        [CallAddr addrReg argRegs nextReg] ++
+                                        [Add reg_esp (toInteger $ length args)],
+                                        nextReg, emptyScope)
     where
         (addrRtl, addrReg, _) = toRtl addr nextReg scope
         (argsRtl, argRegs) = handleCallArgs args addrReg scope
 
-toRtl (Func (FuncType retType argTypes) name body) nextReg scope = ((FuncStart name) : bodyRtl ++ [Return], nextReg, (Scope [] ss [] [] [Fun name retType argTypes]))
+toRtl (Func (FuncType retType argTypes) name body) nextReg scope = ([Label name, Push reg_ebp, Mov reg_ebp reg_esp] ++
+                                                                    bodyRtl ++
+                                                                    (if (length ls) > 0
+                                                                        then [Add reg_esp (toInteger (length ls) * 4)]
+                                                                        else []) ++
+                                                                    [Return],
+                                                                    nextReg, (Scope [] ss [] [] [Fun name retType argTypes]))
     where
         (bodyRtl, _, (Scope _ ss _ ls _)) = toRtl body nextReg (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] []), scope])
-        numLocals = toInteger (length ls)
 
 argTypesToVars :: [(Type, String)] -> [Var]
 argTypesToVars list = argTypesToVarsLoop list [] where
