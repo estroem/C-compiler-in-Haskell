@@ -435,12 +435,6 @@ handleAssign (App op [addrExpr]) expr nextReg scope = (addrRtl ++ exprRtl ++ [Sa
 isEmpty :: Ast -> Bool
 isEmpty (Block list) = null list
 
-getTypeConst :: Type -> String
-getTypeConst = head . words . show
-
-getName :: Ast -> String
-getName (Name name) = name
-
 -- TO ASM
 
 toAsm :: Rtl -> [Var] -> Asm
