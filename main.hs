@@ -29,7 +29,8 @@ data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg I
              | Cmp Reg | Jmp String | Je String | Jne String | Jle String | Jl String
              | CallName String [Reg] Reg | CallAddr Reg [Reg] Reg | DeRef Reg
              | FuncStart String | FuncEnd String | Return | Push Reg | LoadLoc Reg Integer
-             | SaveLoc Integer Reg | Pop Reg
+             | SaveLoc Integer Reg | Pop Reg | AddConst Reg Integer | SubConst Reg Integer
+             | MulConst Reg Integer | DivConst Reg Integer
     deriving (Show)
 type Reg = Integer
 
@@ -376,7 +377,7 @@ toRtl (If cond thenBlock elseBlock) nextReg scope
 toRtl (Call (Name name) args) nextReg scope = (argsRtl ++
                                                handleArgPush argRegs ++
                                                [CallName name argRegs nextReg] ++
-                                               [Add reg_esp (toInteger $ length args)],
+                                               [AddConst reg_esp (toInteger $ length args)],
                                                nextReg, emptyScope)
     where (argsRtl, argRegs) = handleCallArgs args nextReg scope
 
@@ -384,7 +385,7 @@ toRtl (Call addr args) nextReg scope = (addrRtl ++
                                         argsRtl ++
                                         handleArgPush argRegs ++
                                         [CallAddr addrReg argRegs nextReg] ++
-                                        [Add reg_esp (toInteger $ length args)],
+                                        [AddConst reg_esp (toInteger $ length args)],
                                         nextReg, emptyScope)
     where
         (addrRtl, addrReg, _) = toRtl addr nextReg scope
@@ -393,7 +394,7 @@ toRtl (Call addr args) nextReg scope = (addrRtl ++
 toRtl (Func (FuncType retType argTypes) name body) nextReg scope = ([Label name, Push reg_ebp, Mov reg_ebp reg_esp] ++
                                                                     bodyRtl ++
                                                                     (if (length ls) > 0
-                                                                        then [Add reg_esp (toInteger (length ls) * 4)]
+                                                                        then [AddConst reg_esp (toInteger (length ls) * 4)]
                                                                         else []) ++
                                                                     [Pop reg_ebp, Return],
                                                                     nextReg, (Scope [] ss [] [] [Fun name retType argTypes]))
@@ -470,6 +471,10 @@ toAsmLine (Push reg)                 = ["push " ++ getReg reg]
 toAsmLine (Pop reg)                  = ["pop " ++ getReg reg]
 toAsmLine (LoadLoc reg offset)       = ["mov " ++ getReg reg ++ ", [esp" ++ (if offset > 0 then "+" else "") ++ show offset ++ "]"]
 toAsmLine (SaveLoc offset reg)       = ["mov [esp" ++ (if offset > 0 then "+" else "") ++ show offset ++ "], " ++ getReg reg]
+toAsmLine (AddConst reg int)         = ["add " ++ getReg reg ++ ", " ++ show int]
+toAsmLine (SubConst reg int)         = ["sub " ++ getReg reg ++ ", " ++ show int]
+toAsmLine (MulConst reg int)         = ["mul " ++ getReg reg ++ ", " ++ show int]
+toAsmLine (DivConst reg int)         = ["div " ++ getReg reg ++ ", " ++ show int]
 
 getReg :: Reg -> String
 getReg (-2) = "ebp"
