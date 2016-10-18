@@ -101,9 +101,12 @@ parseFile (x:xs) = (addAst file line, final)
 parseTopLvlLine :: [String] -> (Ast, [String])
 parseTopLvlLine (x:xs) =
     case decl of
-        (PrimType _)   -> if (head rest) == "=" then (Init decl name expr, tail exprRest) else if (head rest) == ";" then (Decl decl name True False, tail rest) else error "Expected ; or ="
-        (PtrType _)    -> if (head rest) == "=" then (Init decl name expr, tail exprRest) else if (head rest) == ";" then (Decl decl name True False, tail rest) else error "Expected ; or ="
         (FuncType _ _) -> let block = parseExprOrBlock rest in (Func decl name (fst block), snd block)
+        _              -> if (head rest) == "="
+                            then (Init decl name expr, tail exprRest)
+                            else if (head rest) == ";"
+                                then (Decl decl name True False, tail rest)
+                                else error "Expected ; or ="
     where
         (decl, name, rest) = parseDecl (x:xs)
         (expr, exprRest) = parseExpr $ drop 1 rest
