@@ -50,7 +50,7 @@ data Fun = Fun
     } deriving (Show)
 
 --           Scope globals statics locals functions
-data Scope = Scope [Var] [Var] [Var] [Fun]
+data Scope = Scope [Var] [Var] [Var] [Var] [Fun]
     deriving (Show)
 
 type AsmLine = String
@@ -271,37 +271,43 @@ getTypeFromSym sym = (PrimType sym) --fromJust $ find (\ n -> name n == sym) typ
 --- TO Rtl
 
 emptyScope :: Scope
-emptyScope = (Scope [] [] [] [])
+emptyScope = (Scope [] [] [] [] [])
 
 scopeAddGlo :: Scope -> Var -> Scope
-scopeAddGlo (Scope gs ss ls fs) v = (Scope (v:gs) ss ls fs)
+scopeAddGlo (Scope gs ss ps ls fs) v = (Scope (v:gs) ss ps ls fs)
 
 scopeAddStc :: Scope -> Var -> Scope
-scopeAddStc (Scope gs ss ls fs) v = (Scope gs (v:ss) ls fs)
+scopeAddStc (Scope gs ss ps ls fs) v = (Scope gs (v:ss) ps ls fs)
+
+scopeAddPar :: Scope -> Var -> Scope
+scopeAddPar (Scope gs ss ps ls fs) v = (Scope gs ss (v:ps) ls fs)
 
 scopeAddLoc :: Scope -> Var -> Scope
-scopeAddLoc (Scope gs ss ls fs) v = (Scope gs ss (v:ls) fs)
+scopeAddLoc (Scope gs ss ps ls fs) v = (Scope gs ss ps (v:ls) fs)
 
 scopeAddFun :: Scope -> Fun -> Scope
-scopeAddFun (Scope gs ss ls fs) f = (Scope gs ss ls (f:fs))
+scopeAddFun (Scope gs ss ps ls fs) f = (Scope gs ss ps ls (f:fs))
 
-localOffset :: Scope -> String -> Maybe Integer
-localOffset (Scope _ _ ls _) n =
+getOffset :: Scope -> String -> Maybe Integer
+getOffset (Scope _ _ ps ls _) n =
     let i = findIndex (\ v -> (varName v) == n) ls in
         if isJust i
-            then Just (toInteger $ fromJust i)
-            else Nothing
+            then Just (toInteger $ (fromJust i + 1) * (-4))
+            else let j = findIndex (\ v -> (varName v) == n) ps in
+                if isJust j
+                    then Just (toInteger $ (fromJust j + 2) * 4)
+                    else Nothing
 
 scopeHasVar :: Scope -> String -> Bool
-scopeHasVar (Scope gs ss ls fs) name = any (\ v -> (varName v) == name) gs || any (\ v -> (varName v) == name) ss || any (\ v -> (varName v) == name) ls
+scopeHasVar (Scope gs ss ps ls fs) name = any (\ v -> (varName v) == name) (gs ++ ss ++ ps ++ ls)
 
 scopeHasFun :: Scope -> String -> Bool
-scopeHasFun (Scope gs ss ls fs) name = any (\ f -> (funName f) == name) fs
+scopeHasFun (Scope gs ss ps ls fs) name = any (\ f -> (funName f) == name) fs
 
 joinScopes :: [Scope] -> Scope
 joinScopes list = joinScopesLoop list emptyScope where
-    joinScopesLoop ((Scope gs ss ls fs):xs) (Scope rgs rss rls rfs) =
-        joinScopesLoop xs (Scope (gs ++ rgs) (ss ++ rss) (ls ++ rls) (fs ++ rfs))
+    joinScopesLoop ((Scope gs ss ps ls fs):xs) (Scope rgs rss rps rls rfs) =
+        joinScopesLoop xs (Scope (gs ++ rgs) (ss ++ rss) (ps ++ rps) (ls ++ rls) (fs ++ rfs))
     joinScopesLoop [] res = res
 
 treeToRtl :: Ast -> (Rtl, Scope)
@@ -326,7 +332,7 @@ toRtl (Number x) nextReg scope = ([Mov (nextReg + 1) x], nextReg + 1, emptyScope
 
 toRtl (Name name) nextReg scope =
     if scopeHasVar scope name
-        then let i = localOffset scope name in
+        then let i = getOffset scope name in
             if isJust i
                 then ([LoadLoc (nextReg + 1) (fromJust i)], nextReg + 1, emptyScope)
                 else ([Load (nextReg + 1) name], nextReg + 1, emptyScope)
@@ -362,10 +368,10 @@ toRtl (Call addr args) nextReg scope = (addrRtl ++ argsRtl ++ handleArgPush argR
         (addrRtl, addrReg, _) = toRtl addr nextReg scope
         (argsRtl, argRegs) = handleCallArgs args addrReg scope
 
-toRtl (Func (FuncType retType argTypes) name body) nextReg scope = ((FuncStart name) : bodyRtl ++ [Return], nextReg, (Scope [] ss [] [Fun name retType argTypes]))
+toRtl (Func (FuncType retType argTypes) name body) nextReg scope = ((FuncStart name) : bodyRtl ++ [Return], nextReg, (Scope [] ss [] [] [Fun name retType argTypes]))
     where
-        (bodyRtl, _, (Scope _ ss ls _)) = toRtl body nextReg (joinScopes [(Scope [] [] (argTypesToVars argTypes) []), scope])
-        argLenth = toInteger (length ls)
+        (bodyRtl, _, (Scope _ ss _ ls _)) = toRtl body nextReg (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] []), scope])
+        numLocals = toInteger (length ls)
 
 argTypesToVars :: [(Type, String)] -> [Var]
 argTypesToVars list = argTypesToVarsLoop list [] where
@@ -387,7 +393,7 @@ handleCallArgs (x:xs) nextReg scope = (argRtl ++ finalRtl, argReg : finalReg)
 handleAssign :: Ast -> Ast -> Reg -> Scope -> (Rtl, Reg)
 handleAssign (Name name) expr nextReg scope =
     if scopeHasVar scope name
-        then let i = localOffset scope name in
+        then let i = getOffset scope name in
             if isJust i
                 then (exprRtl ++ [SaveLoc (fromJust i) assignReg], assignReg)
                 else (exprRtl ++ [Save name assignReg], assignReg)
