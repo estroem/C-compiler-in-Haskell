@@ -377,7 +377,7 @@ toRtl (If cond thenBlock elseBlock) nextReg scope
 toRtl (Call (Name name) args) nextReg scope = (argsRtl ++
                                                handleArgPush argRegs ++
                                                [CallName ('_':name) argRegs nextReg] ++
-                                               [AddConst reg_esp (toInteger $ length args)],
+                                               [AddConst reg_esp (toInteger $ length args * 4)],
                                                nextReg, emptyScope)
     where (argsRtl, argRegs) = handleCallArgs args nextReg scope
 
@@ -385,7 +385,7 @@ toRtl (Call addr args) nextReg scope = (addrRtl ++
                                         argsRtl ++
                                         handleArgPush argRegs ++
                                         [CallAddr addrReg argRegs nextReg] ++
-                                        [AddConst reg_esp (toInteger $ length args)],
+                                        [AddConst reg_esp (toInteger $ length args * 4)],
                                         nextReg, emptyScope)
     where
         (addrRtl, addrReg, _) = toRtl addr nextReg scope
@@ -438,8 +438,16 @@ isEmpty (Block list) = null list
 
 -- TO ASM
 
-toAsm :: Rtl -> [Var] -> Asm
-toAsm r s = map toAsmLine r
+toAsm :: Rtl -> Scope -> Asm
+toAsm r (Scope gs ss _ _ fs) = toAsmGlobals fs ++
+                               ["section .data"] ++ (map toAsmDataLine $ gs ++ ss) ++
+                               ["section .text"] ++ (map toAsmLine r)
+
+toAsmGlobals :: [Fun] -> Asm
+toAsmGlobals funs = map (\ f -> "global _" ++ funName f) funs
+
+toAsmDataLine :: Var -> AsmLine
+toAsmDataLine (Var n t) = n ++ " " ++ (getSizeWordData $ getSizeInt t) ++ " 0"
 
 toAsmLine :: RtlLine -> AsmLine
 toAsmLine (Add reg1 reg2)            = "add " ++ getReg reg1 ++ ", " ++ getReg reg2
@@ -478,6 +486,17 @@ getReg 2 = "ebx"
 getReg 3 = "ecx"
 getReg 4 = "edx"
 
+getSizeInt :: Type -> Integer
+getSizeInt (PtrType _) = 4
+getSizeInt (PrimType "int") = 4
+getSizeInt (PrimType "short") = 2
+getSizeInt (PrimType "byte") = 1
+
+getSizeWordData :: Integer -> String
+getSizeWordData 1 = "db"
+getSizeWordData 2 = "dw"
+getSizeWordData 4 = "dd"
+
 getSizeWord :: Integer -> String
 getSizeWord 1 = "byte"
 getSizeWord 2 = "word"
@@ -486,8 +505,7 @@ getSizeWord 4 = "dword"
 --- COMPILE
 
 compile :: String -> Asm
-compile str = toAsm rtl (gs ++ ss)
-    where (rtl, (Scope gs ss _ _ _)) = treeToRtl $ parse $ str
+compile = (uncurry toAsm) . treeToRtl . parse
 
 --- MAIN
 
