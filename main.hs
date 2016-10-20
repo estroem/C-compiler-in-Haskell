@@ -500,10 +500,4 @@ compile str = toAsm rtl (gs ++ ss)
 main :: IO ()
 main = do
     args <- getArgs
-    printAsm $ compile $ head args
-
-printAsm [] = do
-    putStr ""
-printAsm asm = do
-    putStrLn $ head asm
-    printAsm $ tail asm
+    putStrLn $ intercalate "\n" $ compile $ head args
