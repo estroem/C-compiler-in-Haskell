@@ -445,12 +445,15 @@ isEmpty (Block list) = null list
 -- TO ASM
 
 toAsm :: Rtl -> Scope -> Asm
-toAsm r (Scope gs ss _ _ fs) = toAsmGlobals fs ++
+toAsm r (Scope gs ss _ _ fs) = toAsmExtern fs ++ toAsmGlobals fs ++
                                ["section .data"] ++ (map toAsmDataLine $ gs ++ ss) ++
                                ["section .text"] ++ (map toAsmLine r)
 
 toAsmGlobals :: [Fun] -> Asm
-toAsmGlobals funs = map (\ f -> "global _" ++ funName f) $ filter funIsDef funs
+toAsmGlobals funs = map (\ f -> "global _" ++ funName f) (filter funIsDef funs)
+
+toAsmExtern :: [Fun] -> Asm
+toAsmExtern funs = map (\ f -> "extern _" ++ funName f) (filter (\f -> (not $ funIsDef f) && (not $ any (\f2 -> funName f == funName f2 && funIsDef f2) funs)) funs)
 
 toAsmDataLine :: Var -> AsmLine
 toAsmDataLine (Var n t) = n ++ " " ++ (getSizeWordData $ getSizeInt t) ++ " 0"
