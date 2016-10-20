@@ -376,7 +376,7 @@ toRtl (If cond thenBlock elseBlock) nextReg scope
 
 toRtl (Call (Name name) args) nextReg scope = (argsRtl ++
                                                handleArgPush argRegs ++
-                                               [CallName name argRegs nextReg] ++
+                                               [CallName ('_':name) argRegs nextReg] ++
                                                [AddConst reg_esp (toInteger $ length args)],
                                                nextReg, emptyScope)
     where (argsRtl, argRegs) = handleCallArgs args nextReg scope
@@ -391,7 +391,7 @@ toRtl (Call addr args) nextReg scope = (addrRtl ++
         (addrRtl, addrReg, _) = toRtl addr nextReg scope
         (argsRtl, argRegs) = handleCallArgs args addrReg scope
 
-toRtl (Func (FuncType retType argTypes) name body) nextReg scope = ([Label name, Push reg_ebp, Mov reg_ebp reg_esp] ++
+toRtl (Func (FuncType retType argTypes) name body) nextReg scope = ([Label ('_':name), Push reg_ebp, Mov reg_ebp reg_esp] ++
                                                                     bodyRtl ++
                                                                     (if (length ls) > 0
                                                                         then [AddConst reg_esp (toInteger (length ls) * 4)]
@@ -479,10 +479,10 @@ toAsmLine (DivConst reg int)         = ["div " ++ getReg reg ++ ", " ++ show int
 getReg :: Reg -> String
 getReg (-2) = "ebp"
 getReg (-1) = "esp"
-getReg 1 = "rax"
-getReg 2 = "rbx"
-getReg 3 = "rcx"
-getReg 4 = "rdx"
+getReg 1 = "eax"
+getReg 2 = "ebx"
+getReg 3 = "ecx"
+getReg 4 = "edx"
 
 getSizeWord :: Integer -> String
 getSizeWord 1 = "byte"
