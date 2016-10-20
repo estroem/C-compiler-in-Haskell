@@ -3,9 +3,9 @@ import Data.List
 import Data.Maybe
 import System.Environment
 
-data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | Decl Type String Bool Bool
+data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | VarDecl Type String Bool Bool
          | If Ast Ast Ast | Call Ast [Ast] | Init Type String Ast
-         | Func Type String Ast | File [Ast]
+         | Func Type String Ast | File [Ast] | FunDecl Type String
     deriving (Show)
 
 data Op = Op
@@ -48,6 +48,7 @@ data Fun = Fun
     { funName :: String
     , funRetType :: Type
     , funArgs :: [(Type, String)]
+    , funIsDef :: Bool
     } deriving (Show)
 
 reg_ebp :: Integer
@@ -107,11 +108,14 @@ parseFile (x:xs) = (addAst file line, final)
 parseTopLvlLine :: [String] -> (Ast, [String])
 parseTopLvlLine (x:xs) =
     case decl of
-        (FuncType _ _) -> let block = parseExprOrBlock rest in (Func decl name (fst block), snd block)
+        (FuncType _ _) -> if (head rest) == ";"
+                              then (FunDecl decl name, tail rest)
+                              else let block = parseExprOrBlock rest
+                                  in (Func decl name (fst block), snd block)
         _              -> if (head rest) == "="
                             then (Init decl name expr, tail exprRest)
                             else if (head rest) == ";"
-                                then (Decl decl name True False, tail rest)
+                                then (VarDecl decl name True False, tail rest)
                                 else error "Expected ; or ="
     where
         (decl, name, rest) = parseDecl (x:xs)
@@ -171,7 +175,7 @@ parseLine :: [String] -> (Ast, [String])
 parseLine [] = (undefined, [])
 parseLine ("if":"(":xs) = parseIf xs
 parseLine (x:xs)
-    | isType x && length xs > 0 && all isAlpha (head xs) = (Decl (getTypeFromSym x) (head xs) False False, xs)
+    | isType x && length xs > 0 && all isAlpha (head xs) = (VarDecl (getTypeFromSym x) (head xs) False False, xs)
     | otherwise = (fst expr, drop 1 $ snd expr)
         where expr = parseExpr (x:xs)
 
@@ -345,7 +349,7 @@ toRtl (Name name) nextReg scope =
                 else ([Load (nextReg + 1) name], nextReg + 1, emptyScope)
         else error $ "Variable not in scope: " ++ name
 
-toRtl (Decl t n g s) nextReg scope = ([], nextReg, (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t))
+toRtl (VarDecl t n g s) nextReg scope = ([], nextReg, (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t))
 
 toRtl (App op exprList) nextReg scope
     | symbol op == "+" = (expr1 ++ expr2 ++ [Add reg2 reg1], reg2, emptyScope)
@@ -397,9 +401,11 @@ toRtl (Func (FuncType retType argTypes) name body) nextReg scope = ([Label ('_':
                                                                         then [AddConst reg_esp (toInteger (length ls) * 4)]
                                                                         else []) ++
                                                                     [Pop reg_ebp, Return],
-                                                                    nextReg, (Scope [] ss [] [] [Fun name retType argTypes]))
+                                                                    nextReg, (Scope [] ss [] [] [Fun name retType argTypes True]))
     where
         (bodyRtl, _, (Scope _ ss _ ls _)) = toRtl body nextReg (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] []), scope])
+
+toRtl (FunDecl (FuncType retType argTypes) name) nextReg scope = ([], nextReg, scopeAddFun emptyScope (Fun name retType argTypes False))
 
 argTypesToVars :: [(Type, String)] -> [Var]
 argTypesToVars list = argTypesToVarsLoop list [] where
@@ -444,7 +450,7 @@ toAsm r (Scope gs ss _ _ fs) = toAsmGlobals fs ++
                                ["section .text"] ++ (map toAsmLine r)
 
 toAsmGlobals :: [Fun] -> Asm
-toAsmGlobals funs = map (\ f -> "global _" ++ funName f) funs
+toAsmGlobals funs = map (\ f -> "global _" ++ funName f) $ filter funIsDef funs
 
 toAsmDataLine :: Var -> AsmLine
 toAsmDataLine (Var n t) = n ++ " " ++ (getSizeWordData $ getSizeInt t) ++ " 0"
