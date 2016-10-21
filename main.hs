@@ -5,7 +5,7 @@ import System.Environment
 
 data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | VarDecl Type String Bool Bool
          | If Ast Ast Ast | Call Ast [Ast] | Init Type String Ast
-         | Func Type String Ast | File [Ast] | FunDecl Type String
+         | Func Type String Ast | File [Ast] | FunDecl Type String | Literal String
     deriving (Show)
 
 data Op = Op
@@ -42,6 +42,7 @@ type Registers = [Bool]
 data Var = Var
     { varName :: String
     , varType :: Type
+    , varValue :: Maybe Value
     } deriving (Show)
 
 data Fun = Fun
@@ -50,6 +51,9 @@ data Fun = Fun
     , funArgs :: [(Type, String)]
     , funIsDef :: Bool
     } deriving (Show)
+
+data Value = Integer Integer | Float Float | String String
+    deriving (Show)
 
 reg_ebp :: Integer
 reg_ebp = -2
@@ -69,7 +73,7 @@ extraSymbols = [";", "(", ")", "{", "}", ","]
 opShoRtlist = ["+", "-", "*", "/", "++", "=", "$"]
 
 --types = [(Type "int" 4), (Type "short" 2), (Type "byte" 1)]
-typeShoRtlist = ["int", "short", "byte"]
+typeShoRtlist = ["int", "short", "byte", "char"]
 
 --- TOKENIZE
 
@@ -220,7 +224,9 @@ parseSingleExpr (x:xs) =
             then (Number $ read x, (x:xs))
             else if all isAlpha x
                 then (Name x, (x:xs))
-                else error $ "Unexpected \"" ++ x ++ "\""
+                else if (head x) == '"'
+                    then (Literal $ tail x, (x:xs))
+                    else error $ "Unexpected \"" ++ x ++ "\""
         in
             if (snd expr) !! 1 == "("
                 then
@@ -279,7 +285,7 @@ getOpFromSym sym = fromJust $ find (\ op -> symbol op == sym) operators
 getTypeFromSym :: String -> Type
 getTypeFromSym sym = (PrimType sym) --fromJust $ find (\ n -> name n == sym) types
 
---- TO Rtl
+--- TO RTL
 
 emptyScope :: Scope
 emptyScope = (Scope [] [] [] [] [])
@@ -349,7 +355,11 @@ toRtl (Name name) nextReg scope =
                 else ([Load (nextReg + 1) name], nextReg + 1, emptyScope)
         else error $ "Variable not in scope: " ++ name
 
-toRtl (VarDecl t n g s) nextReg scope = ([], nextReg, (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t))
+toRtl (VarDecl t n g s) nextReg scope = ([], nextReg, (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing))
+
+toRtl (Init t n v) nextReg _ = ([], nextReg, scopeAddGlo emptyScope $ Var n t (getValueFromAst v))
+
+toRtl (FunDecl (FuncType retType argTypes) name) nextReg scope = ([], nextReg, scopeAddFun emptyScope (Fun name retType argTypes False))
 
 toRtl (App op exprList) nextReg scope
     | symbol op == "+" = (expr1 ++ expr2 ++ [Add reg2 reg1], reg2, emptyScope)
@@ -405,11 +415,14 @@ toRtl (Func (FuncType retType argTypes) name body) nextReg scope = ([Label ('_':
     where
         (bodyRtl, _, (Scope _ ss _ ls _)) = toRtl body nextReg (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] []), scope])
 
-toRtl (FunDecl (FuncType retType argTypes) name) nextReg scope = ([], nextReg, scopeAddFun emptyScope (Fun name retType argTypes False))
+getValueFromAst :: Ast -> Maybe Value
+getValueFromAst (Number x) = Just $ Integer x
+getValueFromAst (Literal x) = Just $ String x
+getValueFromAst _ = error "Non-constant value in global definition"
 
 argTypesToVars :: [(Type, String)] -> [Var]
 argTypesToVars list = argTypesToVarsLoop list [] where
-    argTypesToVarsLoop ((t,n):xs) res = argTypesToVarsLoop xs (res ++ [Var n t])
+    argTypesToVarsLoop ((t,n):xs) res = argTypesToVarsLoop xs (res ++ [Var n t Nothing])
     argTypesToVarsLoop [] res = res
 
 handleArgPush :: [Reg] -> Rtl
@@ -456,7 +469,11 @@ toAsmExtern :: [Fun] -> Asm
 toAsmExtern funs = map (\ f -> "extern _" ++ funName f) (filter (\f -> (not $ funIsDef f) && (not $ any (\f2 -> funName f == funName f2 && funIsDef f2) funs)) funs)
 
 toAsmDataLine :: Var -> AsmLine
-toAsmDataLine (Var n t) = n ++ " " ++ (getSizeWordData $ getSizeInt t) ++ " 0"
+toAsmDataLine (Var n t v) = n ++ " " ++ (getSizeWordData $ getSizeInt t) ++ " " ++
+    case v of
+        Nothing -> "0"
+        Just (Integer x) -> show x
+        Just (String x) -> "$ + 4" ++ "\ndb '" ++ x ++ "', 0"
 
 toAsmLine :: RtlLine -> AsmLine
 toAsmLine (Add reg1 reg2)            = "add " ++ getReg reg1 ++ ", " ++ getReg reg2
@@ -500,6 +517,7 @@ getSizeInt (PtrType _) = 4
 getSizeInt (PrimType "int") = 4
 getSizeInt (PrimType "short") = 2
 getSizeInt (PrimType "byte") = 1
+getSizeInt (PrimType "char") = 1
 
 getSizeWordData :: Integer -> String
 getSizeWordData 1 = "db"
