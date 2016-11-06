@@ -6,6 +6,7 @@ import System.Environment
 data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | VarDecl Type String Bool Bool
          | If Ast Ast Ast | Call Ast [Ast] | Init Type String Ast
          | Func Type String Ast | File [Ast] | FunDecl Type String | Literal String | Return (Maybe Ast)
+         | While Ast Ast
     deriving (Show)
 
 data Op = Op
@@ -182,6 +183,7 @@ parseBlock (x:xs) = (addAst (fst block) (fst expr), snd block)
 parseLine :: [String] -> (Ast, [String])
 parseLine [] = (undefined, [])
 parseLine ("if":"(":xs) = parseIf xs
+parseLine ("while":"(":xs) = parseWhile xs
 parseLine (x:xs)
     | isType x && length xs > 0 && all isAlpha (head xs) = (VarDecl (getTypeFromSym x) (head xs) False False, xs)
     | otherwise = (fst expr, drop 1 $ snd expr)
@@ -199,6 +201,12 @@ parseIf (x:xs) =
         expr = parseExpr (x:xs)
         block1 = parseExprOrBlock $ drop 1 $ snd expr
         block2 = parseExprOrBlock $ drop 1 $ snd block1
+
+parseWhile :: [String] -> (Ast, [String])
+parseWhile (x:xs) = (While (fst cond) (fst block), snd block)
+    where
+        cond = parseExpr (x:xs)
+        block = parseExprOrBlock $ drop 1 $ snd cond
 
 parseCallArgs :: [String] -> ([Ast], [String])
 parseCallArgs ("(":")":xs) = ([], xs)
@@ -398,6 +406,16 @@ toRtl (If cond thenBlock elseBlock) nextReg scope
         (condRtl, condReg, _) = toRtl cond nextReg scope
         (thenBlockRtl, _, thenNewVars) = toRtl thenBlock nextReg scope
         (elseBlockRtl, _, elseNewVars) = toRtl elseBlock nextReg scope
+
+toRtl (While cond block) nextReg scope = ([Label ("while" ++ show condReg)] ++
+                                         condRtl ++
+                                         [Cmp condReg, Je ("endwhile" ++ show condReg)] ++
+                                         blockRtl ++
+                                         [Jmp ("while" ++ show condReg), Label ("endwhile" ++ show condReg)],
+                                         0, newVars)
+    where
+        (condRtl, condReg, _) = toRtl cond nextReg scope
+        (blockRtl, _, newVars) = toRtl block nextReg scope
 
 toRtl (Call (Name name) args) nextReg scope = (argsRtl ++
                                                handleArgPush argRegs ++
