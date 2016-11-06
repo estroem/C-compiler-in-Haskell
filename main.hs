@@ -5,7 +5,7 @@ import System.Environment
 
 data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | VarDecl Type String Bool Bool
          | If Ast Ast Ast | Call Ast [Ast] | Init Type String Ast
-         | Func Type String Ast | File [Ast] | FunDecl Type String | Literal String
+         | Func Type String Ast | File [Ast] | FunDecl Type String | Literal String | Return (Maybe Ast)
     deriving (Show)
 
 data Op = Op
@@ -28,7 +28,7 @@ data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg I
              | Load Reg String | Save String Reg Integer | SaveToPtr Reg Reg Integer | Label String
              | Cmp Reg | Jmp String | Je String | Jne String | Jle String | Jl String
              | CallName String [Reg] Reg | CallAddr Reg [Reg] Reg | DeRef Reg
-             | FuncStart String | FuncEnd String | Return | Push Reg | LoadLoc Reg Integer
+             | FuncStart String | FuncEnd String | Ret | Push Reg | LoadLoc Reg Integer
              | SaveLoc Integer Reg | Pop Reg | AddConst Reg Integer | SubConst Reg Integer
              | MulConst Reg Integer | DivConst Reg Integer | LoadLit Reg Lit | MovReg Reg Reg
     deriving (Show)
@@ -61,6 +61,8 @@ reg_ebp :: Integer
 reg_ebp = -2
 reg_esp :: Integer
 reg_esp = -1
+reg_eax :: Integer
+reg_eax = -3
 
 --           Scope globals statics locals functions
 data Scope = Scope [Var] [Var] [Var] [Var] [Fun]
@@ -208,6 +210,11 @@ parseCallArgs (x:xs) = (arg : nextArgs, rest)
 
 parseExpr :: [String] -> (Ast, [String])
 parseExpr [] = (undefined, [])
+parseExpr ("return":r)
+    | (head r) == ";" = (Return Nothing, r)
+    | otherwise = (Return $ Just expr, r2)
+    where
+        (expr, r2) = parseExpr r
 parseExpr (x:xs) = (prefixToTree $ infixToPrefix $ fst exprList, snd exprList)
     where
         exprList = getExprList (x:xs)
@@ -396,7 +403,7 @@ toRtl (Call (Name name) args) nextReg scope = (argsRtl ++
                                                handleArgPush argRegs ++
                                                [CallName ('_':name) argRegs nextReg] ++
                                                [AddConst reg_esp (toInteger $ length args * 4)],
-                                               nextReg, emptyScope)
+                                               1, emptyScope)
     where (argsRtl, argRegs) = handleCallArgs args nextReg scope
 
 toRtl (Call addr args) nextReg scope = (addrRtl ++
@@ -414,10 +421,18 @@ toRtl (Func (FuncType retType argTypes) name body) nextReg scope = ([Label ('_':
                                                                     (if (length ls) > 0
                                                                         then [AddConst reg_esp (toInteger (length ls) * 4)]
                                                                         else []) ++
-                                                                    [Pop reg_ebp, Return],
+                                                                    (if endsOnRet body
+                                                                        then []
+                                                                        else [Pop reg_ebp, Ret]),
                                                                     nextReg, (Scope [] ss [] [] [Fun name retType argTypes True]))
     where
         (bodyRtl, _, (Scope _ ss _ ls _)) = toRtl body nextReg (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] []), scope])
+
+toRtl (Return Nothing) nextReg _ = ([Pop reg_ebp, Ret], nextReg, emptyScope)
+toRtl (Return (Just expr)) nextReg scope = (exprRtl ++ [MovReg reg_eax reg, Pop reg_ebp, Ret],
+                                            nextReg, emptyScope)
+    where
+        (exprRtl, reg, _) = toRtl expr nextReg scope
 
 getValueFromAst :: Ast -> Maybe Value
 getValueFromAst (Number x) = Just $ Integer x
@@ -458,6 +473,11 @@ handleAssign (App op [addrExpr]) expr nextReg scope = (addrRtl ++ exprRtl ++ [Sa
 
 isEmpty :: Ast -> Bool
 isEmpty (Block list) = null list
+
+endsOnRet :: Ast -> Bool
+endsOnRet (Block b) = case last b of
+    (Return _) -> True
+    _          -> False
 
 -- TO ASM
 
@@ -511,7 +531,7 @@ toAsmLine (Jl label) _ _             = ("jl " ++ label, [])
 toAsmLine (CallName name args _) _ _ = ("call " ++ name, [])
 toAsmLine (CallAddr addr args _) _ _ = ("call " ++ getReg addr, [])
 toAsmLine (DeRef reg) _ _            = ("mov " ++ getReg reg ++ ", [" ++ getReg reg ++ "]", [])
-toAsmLine (Return) _ _               = ("ret", [])
+toAsmLine (Ret) _ _                  = ("ret", [])
 toAsmLine (Push reg) _ _             = ("push " ++ getReg reg, [])
 toAsmLine (Pop reg) _ _              = ("pop " ++ getReg reg, [])
 toAsmLine (LoadLoc reg offset) _ _   = ("mov " ++ getReg reg ++ ", [esp" ++ (if offset > 0 then "+" else "") ++ show offset ++ "]", [])
@@ -527,6 +547,7 @@ litsGetSize :: [Lit] -> Integer
 litsGetSize list = foldr (\ l s -> s + toInteger (length l) + 1) 0 list
 
 getReg :: Reg -> String
+getReg (-3) = "eax"
 getReg (-2) = "ebp"
 getReg (-1) = "esp"
 getReg 1 = "eax"
