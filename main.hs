@@ -499,7 +499,7 @@ toAsmExtern :: [Fun] -> Asm
 toAsmExtern funs = map (\ f -> "extern _" ++ funName f) (filter (\f -> (not $ funIsDef f) && (not $ any (\f2 -> funName f == funName f2 && funIsDef f2) funs)) funs)
 
 toAsmDataLine :: Var -> AsmLine
-toAsmDataLine (Var n t v) = n ++ " " ++ (getSizeWordData $ getSizeInt t) ++ " " ++
+toAsmDataLine (Var n t v) = n ++ ": " ++ (getSizeWordData $ getSizeInt t) ++ " " ++
     case v of
         Nothing -> "0"
         Just (Integer x) -> show x
