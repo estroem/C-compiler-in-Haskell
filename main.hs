@@ -417,6 +417,9 @@ toRtl (Call addr args) nextReg scope = (addrRtl ++
         (argsRtl, argRegs) = handleCallArgs args addrReg scope
 
 toRtl (Func (FuncType retType argTypes) name body) nextReg scope = ([Label ('_':name), Push reg_ebp, MovReg reg_ebp reg_esp] ++
+                                                                    (if (length ls) > 0
+                                                                        then [SubConst reg_esp (toInteger (length ls) * 4)]
+                                                                        else []) ++
                                                                     bodyRtl ++
                                                                     (if (length ls) > 0
                                                                         then [AddConst reg_esp (toInteger (length ls) * 4)]
