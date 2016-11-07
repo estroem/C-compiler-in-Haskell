@@ -603,4 +603,9 @@ compile = (uncurry toAsm) . treeToRtl . parse
 main :: IO ()
 main = do
     args <- getArgs
-    putStrLn $ intercalate "\n" $ compile $ head args
+    if (length args) == 2
+        then do
+            file <- readFile $ (args !! 0)
+            writeFile (args !! 1) $ intercalate "\n" $ compile $ file
+        else
+            putStrLn $ intercalate "\n" $ compile $ (head args)
