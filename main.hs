@@ -524,7 +524,7 @@ toAsmDataLine (Var n t v) = n ++ ": " ++ (getSizeWordData $ getSizeInt t) ++ " "
         Just (String x) -> "$ + 4" ++ "\ndb '" ++ x ++ "', 0"
 
 toAsmLitLine :: Lit -> String
-toAsmLitLine l = "db '" ++ l ++ "', 0"
+toAsmLitLine l = "db `" ++ l ++ "`, 0"
 
 toAsmLines :: Rtl -> (Asm, [Lit])
 toAsmLines rtl = toAsmLinesLoop rtl 0 [] [] where
