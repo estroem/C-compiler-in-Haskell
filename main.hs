@@ -417,19 +417,23 @@ toRtl (While cond block) nextReg scope = ([Label ("while" ++ show condReg)] ++
         (condRtl, condReg, _) = toRtl cond nextReg scope
         (blockRtl, _, newVars) = toRtl block nextReg scope
 
-toRtl (Call (Name name) args) nextReg scope = (argsRtl ++
+toRtl (Call (Name name) args) nextReg scope = ([Push reg_eax] ++ 
+                                               argsRtl ++
                                                handleArgPush argRegs ++
                                                [CallName ('_':name) argRegs nextReg] ++
-                                               [AddConst reg_esp (toInteger $ length args * 4)],
-                                               1, emptyScope)
+                                               [AddConst reg_esp (toInteger $ length args * 4)] ++
+                                               [MovReg (nextReg + 1) reg_eax, Pop reg_eax],
+                                               nextReg + 1, emptyScope)
     where (argsRtl, argRegs) = handleCallArgs args nextReg scope
 
-toRtl (Call addr args) nextReg scope = (addrRtl ++
+toRtl (Call addr args) nextReg scope = ([Push reg_eax] ++ 
+                                        addrRtl ++
                                         argsRtl ++
                                         handleArgPush argRegs ++
                                         [CallAddr addrReg argRegs nextReg] ++
-                                        [AddConst reg_esp (toInteger $ length args * 4)],
-                                        nextReg, emptyScope)
+                                        [AddConst reg_esp (toInteger $ length args * 4)] ++
+                                        [MovReg (nextReg + 1) reg_eax, Pop reg_eax],
+                                        nextReg + 1, emptyScope)
     where
         (addrRtl, addrReg, _) = toRtl addr nextReg scope
         (argsRtl, argRegs) = handleCallArgs args addrReg scope
