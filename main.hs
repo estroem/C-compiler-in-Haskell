@@ -230,7 +230,7 @@ parseExpr (x:xs) = (prefixToTree $ infixToPrefix $ fst exprList, snd exprList)
 parseExprOrBlock :: [String] -> (Ast, [String])
 parseExprOrBlock (";":xs) = (Block [], xs)
 parseExprOrBlock ("{":xs) = parseBlock xs
-parseExprOrBlock (x:xs) = (fst expr, tail $ snd expr)
+parseExprOrBlock (x:xs) = (Block [fst expr], tail $ snd expr)
     where expr = parseExpr (x:xs)
 
 parseSingleExpr :: [String] -> (Ast, [String])
