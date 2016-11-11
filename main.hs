@@ -72,10 +72,10 @@ data Scope = Scope [Var] [Var] [Var] [Var] [Fun]
 type AsmLine = String
 type Asm = [AsmLine]
 
-operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 1 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0), (Op "$" 1 4 0)]
+operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 1 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0), (Op "$" 1 4 0),{- (Op "==" 2 0 0),-} (Op "!=" 2 0 0)]
 extraSymbols = [";", "(", ")", "{", "}", ","]
 
-opShoRtlist = ["+", "-", "*", "/", "++", "=", "$"]
+opShoRtlist = ["+", "-", "*", "/", "++", "=", "$", "==", "!="]
 
 --types = [(Type "int" 4), (Type "short" 2), (Type "byte" 1)]
 typeShoRtlist = ["int", "short", "byte", "char"]
@@ -387,6 +387,8 @@ toRtl (App op exprList) nextReg scope
     | symbol op == "/" = (expr1 ++ expr2 ++ [Div reg2 reg1], reg2, emptyScope)
     | symbol op == "=" = let (a, b) = handleAssign (head exprList) (last exprList) nextReg scope in (a, b, emptyScope)
     | symbol op == "$" = (expr ++ [DeRef reg], reg, emptyScope)
+--  | symbol op == "==" = (expr1 ++ expr2 ++ [Cmp reg2 reg1], reg2, emptyScope)
+    | symbol op == "!=" = (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2, emptyScope)
         where
             (expr1, reg1, _) = toRtl (exprList !! 1) nextReg scope
             (expr2, reg2, _) = toRtl (exprList !! 0) reg1 scope
