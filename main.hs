@@ -345,26 +345,26 @@ joinScopes list = joinScopesLoop list emptyScope where
     joinScopesLoop [] res = res
 
 toRtl :: Ast -> (Rtl, Scope)
-toRtl tree = let (a, b, c) = fileToRtl tree 0 emptyScope in (a, c)
+toRtl tree = fileToRtl tree emptyScope
 
-fileToRtl :: Ast -> Reg -> Scope -> (Rtl, Reg, Scope)
-fileToRtl (File []) nextReg scope = ([], nextReg, emptyScope)
-fileToRtl (File [x]) nextReg scope = entityToRtl x nextReg scope
-fileToRtl (File (x:xs)) nextReg scope = (expr ++ file, nextReg, joinScopes [scope1, scope2])
+fileToRtl :: Ast -> Scope -> (Rtl, Scope)
+fileToRtl (File []) _ = ([], emptyScope)
+fileToRtl (File [x]) scope = entityToRtl x scope
+fileToRtl (File (x:xs)) scope = (expr ++ file, joinScopes [scope1, scope2])
     where
-        (expr, _, scope1) = entityToRtl x nextReg scope
-        (file, _, scope2) = fileToRtl (File xs) nextReg (joinScopes [scope, scope1])
+        (expr, scope1) = entityToRtl x scope
+        (file, scope2) = fileToRtl (File xs) (joinScopes [scope, scope1])
 
 
-entityToRtl :: Ast -> Reg -> Scope -> (Rtl, Reg, Scope)
+entityToRtl :: Ast -> Scope -> (Rtl, Scope)
 
-entityToRtl (VarDecl t n g s) nextReg scope = ([], nextReg, (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing))
+entityToRtl (VarDecl t n g s) scope = ([], (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing))
 
-entityToRtl (Init t n v) nextReg _ = ([], nextReg, scopeAddGlo emptyScope $ Var n t (getValueFromAst v))
+entityToRtl (Init t n v) _ = ([], scopeAddGlo emptyScope $ Var n t (getValueFromAst v))
 
-entityToRtl (FunDecl (FuncType retType argTypes) name) nextReg scope = ([], nextReg, scopeAddFun emptyScope (Fun name retType argTypes False))
+entityToRtl (FunDecl (FuncType retType argTypes) name) scope = ([], scopeAddFun emptyScope (Fun name retType argTypes False))
 
-entityToRtl (Func (FuncType retType argTypes) name body) nextReg scope = ([Label ('_':name), Push reg_ebp, MovReg reg_ebp reg_esp] ++
+entityToRtl (Func (FuncType retType argTypes) name body) scope = ([Label ('_':name), Push reg_ebp, MovReg reg_ebp reg_esp] ++
                                                                     (if (length ls) > 0
                                                                         then [SubConst reg_esp (toInteger (length ls) * 4)]
                                                                         else []) ++
@@ -375,21 +375,21 @@ entityToRtl (Func (FuncType retType argTypes) name body) nextReg scope = ([Label
                                                                     (if endsOnRet body
                                                                         then []
                                                                         else [Pop reg_ebp, Ret]),
-                                                                    nextReg, (Scope [] ss [] [] [Fun name retType argTypes True]))
+                                                                    (Scope [] ss [] [] [Fun name retType argTypes True]))
     where
-        (bodyRtl, _, (Scope _ ss _ ls _)) = blockToRtl body nextReg (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] []), scope])
+        (bodyRtl, _, (Scope _ ss _ ls _), numLocals) = blockToRtl body 0 (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] []), scope])
 
 
-blockToRtl :: Ast -> Reg -> Scope -> (Rtl, Reg, Scope)
-blockToRtl (Block []) nextReg scope = ([], nextReg, emptyScope)
+blockToRtl :: Ast -> Reg -> Scope -> (Rtl, Reg, Scope, Integer)
+blockToRtl (Block []) nextReg scope = ([], nextReg, emptyScope, 0)
 blockToRtl (Block [x]) nextReg scope = lineToRtl x nextReg scope
-blockToRtl (Block (x:xs)) nextReg scope = (expr ++ block, nextReg, joinScopes [scope1, scope2])
+blockToRtl (Block (x:xs)) nextReg scope = (expr ++ block, nextReg, joinScopes [scope1, scope2], numLocals + numLocals')
     where
-        (expr, _, scope1) = lineToRtl x nextReg scope
-        (block, _, scope2) = blockToRtl (Block xs) nextReg (joinScopes [scope, scope1])
+        (expr, _, scope1, numLocals) = lineToRtl x nextReg scope
+        (block, _, scope2, numLocals') = blockToRtl (Block xs) nextReg (joinScopes [scope, scope1])
 
 
-lineToRtl :: Ast -> Reg -> Scope -> (Rtl, Reg, Scope)
+lineToRtl :: Ast -> Reg -> Scope -> (Rtl, Reg, Scope, Integer)
 
 lineToRtl (If cond thenBlock elseBlock) nextReg scope
     | not $ isEmpty elseBlock = (condRtl ++
@@ -399,37 +399,37 @@ lineToRtl (If cond thenBlock elseBlock) nextReg scope
                                  Label ("then" ++ show condReg)] ++
                                  thenBlockRtl ++
                                  [Label ("endif" ++ show condReg)],
-                                 0, joinScopes [thenNewVars, elseNewVars])
-    | otherwise = (condRtl ++ [Cmp condReg, Je ("endif" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0, thenNewVars)
+                                 0, joinScopes [thenNewVars, elseNewVars], numLocals + numLocals')
+    | otherwise = (condRtl ++ [Cmp condReg, Je ("endif" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0, thenNewVars, numLocals)
     where
         (condRtl, condReg, _) = exprToRtl cond nextReg scope
-        (thenBlockRtl, _, thenNewVars) = blockToRtl thenBlock nextReg scope
-        (elseBlockRtl, _, elseNewVars) = blockToRtl elseBlock nextReg scope
+        (thenBlockRtl, _, thenNewVars, numLocals) = blockToRtl thenBlock nextReg scope
+        (elseBlockRtl, _, elseNewVars, numLocals') = blockToRtl elseBlock nextReg scope
 
 lineToRtl (While cond block) nextReg scope = ([Label ("while" ++ show condReg)] ++
                                          condRtl ++
                                          [Cmp condReg, Je ("endwhile" ++ show condReg)] ++
                                          blockRtl ++
                                          [Jmp ("while" ++ show condReg), Label ("endwhile" ++ show condReg)],
-                                         0, newVars)
+                                         0, newVars, numLocals)
     where
         (condRtl, condReg, _) = exprToRtl cond nextReg scope
-        (blockRtl, _, newVars) = blockToRtl block nextReg scope
+        (blockRtl, _, newVars, numLocals) = blockToRtl block nextReg scope
 
-lineToRtl (Return Nothing) nextReg (Scope _ _ _ ls _) = ([AddConst reg_esp (numLocals * 4), Pop reg_ebp, Ret], nextReg, emptyScope)
+lineToRtl (Return Nothing) nextReg (Scope _ _ _ ls _) = ([AddConst reg_esp (numLocals * 4), Pop reg_ebp, Ret], nextReg, emptyScope, 0)
     where numLocals = toInteger $ length ls
 
 lineToRtl (Return (Just expr)) nextReg scope = (exprRtl ++ [MovReg reg_eax reg, AddConst reg_esp (numLocals * 4), Pop reg_ebp, Ret],
-                                            nextReg, emptyScope)
+                                            nextReg, emptyScope, 0)
     where
         (exprRtl, reg, (Scope _ _ _ ls _)) = exprToRtl expr nextReg scope
         numLocals = toInteger $ length ls
 
-lineToRtl (VarDecl t n g s) nextReg scope = ([], nextReg, (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing))
+lineToRtl (VarDecl t n g s) nextReg scope = ([], nextReg, (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing), 1)
 
-lineToRtl (Init t n v) nextReg _ = ([], nextReg, scopeAddGlo emptyScope $ Var n t (getValueFromAst v))
+lineToRtl (Init t n v) nextReg _ = ([], nextReg, scopeAddGlo emptyScope $ Var n t (getValueFromAst v), 1)
 
-lineToRtl a b c = exprToRtl a b c
+lineToRtl a b c = let (d, e, f) = exprToRtl a b c in (d, e, f, 0)
 
 
 exprToRtl :: Ast -> Reg -> Scope -> (Rtl, Reg, Scope)
