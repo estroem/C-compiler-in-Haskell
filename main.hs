@@ -402,7 +402,7 @@ lineToRtl (If cond thenBlock elseBlock) nextReg scope
                                  0, joinScopes [thenNewVars, elseNewVars], numLocals + numLocals')
     | otherwise = (condRtl ++ [Cmp condReg, Je ("endif" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0, thenNewVars, numLocals)
     where
-        (condRtl, condReg, _) = exprToRtl cond nextReg scope
+        (condRtl, condReg) = exprToRtl cond nextReg scope
         (thenBlockRtl, _, thenNewVars, numLocals) = blockToRtl thenBlock nextReg scope
         (elseBlockRtl, _, elseNewVars, numLocals') = blockToRtl elseBlock nextReg scope
 
@@ -413,52 +413,52 @@ lineToRtl (While cond block) nextReg scope = ([Label ("while" ++ show condReg)] 
                                          [Jmp ("while" ++ show condReg), Label ("endwhile" ++ show condReg)],
                                          0, newVars, numLocals)
     where
-        (condRtl, condReg, _) = exprToRtl cond nextReg scope
+        (condRtl, condReg) = exprToRtl cond nextReg scope
         (blockRtl, _, newVars, numLocals) = blockToRtl block nextReg scope
 
 lineToRtl (Return Nothing) nextReg (Scope _ _ _ ls _) = ([AddConst reg_esp (numLocals * 4), Pop reg_ebp, Ret], nextReg, emptyScope, 0)
     where numLocals = toInteger $ length ls
 
-lineToRtl (Return (Just expr)) nextReg scope = (exprRtl ++ [MovReg reg_eax reg, AddConst reg_esp (numLocals * 4), Pop reg_ebp, Ret],
+lineToRtl (Return (Just expr)) nextReg scope@(Scope _ _ _ ls _) = (exprRtl ++ [MovReg reg_eax reg, AddConst reg_esp (numLocals * 4), Pop reg_ebp, Ret],
                                             nextReg, emptyScope, 0)
     where
-        (exprRtl, reg, (Scope _ _ _ ls _)) = exprToRtl expr nextReg scope
+        (exprRtl, reg) = exprToRtl expr nextReg scope
         numLocals = toInteger $ length ls
 
 lineToRtl (VarDecl t n g s) nextReg scope = ([], nextReg, (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing), 1)
 
 lineToRtl (Init t n v) nextReg _ = ([], nextReg, scopeAddGlo emptyScope $ Var n t (getValueFromAst v), 1)
 
-lineToRtl a b c = let (d, e, f) = exprToRtl a b c in (d, e, f, 0)
+lineToRtl a b c = let (d, e) = exprToRtl a b c in (d, e, emptyScope, 0)
 
 
-exprToRtl :: Ast -> Reg -> Scope -> (Rtl, Reg, Scope)
+exprToRtl :: Ast -> Reg -> Scope -> (Rtl, Reg)
 
-exprToRtl (Number x) nextReg scope = ([Mov (nextReg + 1) x], nextReg + 1, emptyScope)
+exprToRtl (Number x) nextReg scope = ([Mov (nextReg + 1) x], nextReg + 1)
 
-exprToRtl (Literal l) nextReg _ = ([LoadLit (nextReg + 1) l], nextReg + 1, emptyScope)
+exprToRtl (Literal l) nextReg _ = ([LoadLit (nextReg + 1) l], nextReg + 1)
 
 exprToRtl (Name name) nextReg scope =
     if scopeHasVar scope name
         then let i = getOffset scope name in
             if isJust i
-                then ([LoadLoc (nextReg + 1) (fromJust i)], nextReg + 1, emptyScope)
-                else ([Load (nextReg + 1) name], nextReg + 1, emptyScope)
+                then ([LoadLoc (nextReg + 1) (fromJust i)], nextReg + 1)
+                else ([Load (nextReg + 1) name], nextReg + 1)
         else error $ "Variable not in scope: " ++ name
 
 exprToRtl (App op exprList) nextReg scope
-    | symbol op == "+" = (expr1 ++ expr2 ++ [Add reg2 reg1], reg2, emptyScope)
-    | symbol op == "-" = (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2, emptyScope)
-    | symbol op == "*" = (expr1 ++ expr2 ++ [Mul reg2 reg1], reg2, emptyScope)
-    | symbol op == "/" = (expr1 ++ expr2 ++ [Div reg2 reg1], reg2, emptyScope)
-    | symbol op == "=" = let (a, b) = handleAssign (head exprList) (last exprList) nextReg scope in (a, b, emptyScope)
-    | symbol op == "$" = (expr ++ [DeRef reg], reg, emptyScope)
---  | symbol op == "==" = (expr1 ++ expr2 ++ [Cmp reg2 reg1], reg2, emptyScope)
-    | symbol op == "!=" = (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2, emptyScope)
+    | symbol op == "+" = (expr1 ++ expr2 ++ [Add reg2 reg1], reg2)
+    | symbol op == "-" = (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
+    | symbol op == "*" = (expr1 ++ expr2 ++ [Mul reg2 reg1], reg2)
+    | symbol op == "/" = (expr1 ++ expr2 ++ [Div reg2 reg1], reg2)
+    | symbol op == "=" = handleAssign (head exprList) (last exprList) nextReg scope
+    | symbol op == "$" = (expr ++ [DeRef reg], reg)
+--  | symbol op == "==" = (expr1 ++ expr2 ++ [Cmp reg2 reg1], reg2)
+    | symbol op == "!=" = (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
         where
-            (expr1, reg1, _) = exprToRtl (exprList !! 1) nextReg scope
-            (expr2, reg2, _) = exprToRtl (exprList !! 0) reg1 scope
-            (expr, reg, _) = exprToRtl (head exprList) nextReg scope
+            (expr1, reg1) = exprToRtl (exprList !! 1) nextReg scope
+            (expr2, reg2) = exprToRtl (exprList !! 0) reg1 scope
+            (expr, reg) = exprToRtl (head exprList) nextReg scope
 
 exprToRtl (Call (Name name) args) nextReg scope = ([Push reg_eax] ++ 
                                                argsRtl ++
@@ -466,7 +466,7 @@ exprToRtl (Call (Name name) args) nextReg scope = ([Push reg_eax] ++
                                                [CallName ('_':name) argRegs nextReg] ++
                                                [AddConst reg_esp (toInteger $ length args * 4)] ++
                                                [MovReg (nextReg + 1) reg_eax, Pop reg_eax],
-                                               nextReg + 1, emptyScope)
+                                               nextReg + 1)
     where (argsRtl, argRegs) = handleCallArgs args nextReg scope
 
 exprToRtl (Call addr args) nextReg scope = ([Push reg_eax] ++ 
@@ -476,9 +476,9 @@ exprToRtl (Call addr args) nextReg scope = ([Push reg_eax] ++
                                         [CallAddr addrReg argRegs nextReg] ++
                                         [AddConst reg_esp (toInteger $ length args * 4)] ++
                                         [MovReg (nextReg + 1) reg_eax, Pop reg_eax],
-                                        nextReg + 1, emptyScope)
+                                        nextReg + 1)
     where
-        (addrRtl, addrReg, _) = exprToRtl addr nextReg scope
+        (addrRtl, addrReg) = exprToRtl addr nextReg scope
         (argsRtl, argRegs) = handleCallArgs args addrReg scope
 
 getValueFromAst :: Ast -> Maybe Value
@@ -500,7 +500,7 @@ handleCallArgs :: [Ast] -> Reg -> Scope -> (Rtl, [Reg])
 handleCallArgs [] _ _ = ([], [])
 handleCallArgs (x:xs) nextReg scope = (argRtl ++ finalRtl, argReg : finalReg)
     where
-        (argRtl, argReg, _) = exprToRtl x nextReg scope
+        (argRtl, argReg) = exprToRtl x nextReg scope
         (finalRtl, finalReg) = handleCallArgs xs argReg scope
 
 handleAssign :: Ast -> Ast -> Reg -> Scope -> (Rtl, Reg)
@@ -511,12 +511,12 @@ handleAssign (Name name) expr nextReg scope =
                 then (exprRtl ++ [SaveLoc (fromJust i) assignReg], assignReg)
                 else (exprRtl ++ [Save name assignReg 4], assignReg)
         else error $ "Variable not in scope: " ++ name
-    where (exprRtl, assignReg, _) = exprToRtl expr nextReg scope
+    where (exprRtl, assignReg) = exprToRtl expr nextReg scope
 
 handleAssign (App op [addrExpr]) expr nextReg scope = (addrRtl ++ exprRtl ++ [SaveToPtr addrReg exprReg 4], exprReg)
     where
-        (addrRtl, addrReg, _) = exprToRtl addrExpr nextReg scope
-        (exprRtl, exprReg, _) = exprToRtl expr addrReg scope
+        (addrRtl, addrReg) = exprToRtl addrExpr nextReg scope
+        (exprRtl, exprReg) = exprToRtl expr addrReg scope
 
 isEmpty :: Ast -> Bool
 isEmpty (Block list) = null list
