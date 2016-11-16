@@ -505,6 +505,7 @@ isEmpty :: Ast -> Bool
 isEmpty (Block list) = null list
 
 endsOnRet :: Ast -> Bool
+endsOnRet (Block []) = False
 endsOnRet (Block b) = case last b of
     (Return _) -> True
     _          -> False
