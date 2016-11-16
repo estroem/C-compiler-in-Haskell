@@ -455,11 +455,14 @@ toRtl (Func (FuncType retType argTypes) name body) nextReg scope = ([Label ('_':
     where
         (bodyRtl, _, (Scope _ ss _ ls _)) = toRtl body nextReg (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] []), scope])
 
-toRtl (Return Nothing) nextReg _ = ([Pop reg_ebp, Ret], nextReg, emptyScope)
-toRtl (Return (Just expr)) nextReg scope = (exprRtl ++ [MovReg reg_eax reg, Pop reg_ebp, Ret],
+toRtl (Return Nothing) nextReg (Scope _ _ _ ls _) = ([AddConst reg_esp (numLocals * 4), Pop reg_ebp, Ret], nextReg, emptyScope)
+    where numLocals = toInteger $ length ls
+
+toRtl (Return (Just expr)) nextReg scope = (exprRtl ++ [MovReg reg_eax reg, AddConst reg_esp (numLocals * 4), Pop reg_ebp, Ret],
                                             nextReg, emptyScope)
     where
-        (exprRtl, reg, _) = toRtl expr nextReg scope
+        (exprRtl, reg, (Scope _ _ _ ls _)) = toRtl expr nextReg scope
+        numLocals = toInteger $ length ls
 
 getValueFromAst :: Ast -> Maybe Value
 getValueFromAst (Number x) = Just $ Integer x
