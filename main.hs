@@ -343,7 +343,7 @@ scopeHasFun (Scope gs ss ps ls fs) name = any (\ f -> (funName f) == name) fs
 joinScopes :: [Scope] -> Scope
 joinScopes list = joinScopesLoop list emptyScope where
     joinScopesLoop ((Scope gs ss ps ls fs):xs) (Scope rgs rss rps rls rfs) =
-        joinScopesLoop xs (Scope (gs ++ rgs) (ss ++ rss) (ps ++ rps) (ls ++ rls) (fs ++ rfs))
+        joinScopesLoop xs (Scope (rgs ++ gs) (rss ++ ss) (rps ++ ps) (rls ++ ls) (rfs ++ fs))
     joinScopesLoop [] res = res
 
 hideLocals :: Scope -> Scope
