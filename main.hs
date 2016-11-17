@@ -44,6 +44,7 @@ data Var = Var
     { varName :: String
     , varType :: Type
     , varValue :: Maybe Value
+    , varIsVis :: Bool
     } deriving (Show)
 
 data Fun = Fun
@@ -334,7 +335,7 @@ getOffset (Scope _ _ ps ls _) n =
                     else Nothing
 
 scopeHasVar :: Scope -> String -> Bool
-scopeHasVar (Scope gs ss ps ls fs) name = any (\ v -> (varName v) == name) (gs ++ ss ++ ps ++ ls)
+scopeHasVar (Scope gs ss ps ls fs) name = any (\ v -> (varName v) == name && varIsVis v) (gs ++ ss ++ ps ++ ls)
 
 scopeHasFun :: Scope -> String -> Bool
 scopeHasFun (Scope gs ss ps ls fs) name = any (\ f -> (funName f) == name) fs
@@ -344,6 +345,9 @@ joinScopes list = joinScopesLoop list emptyScope where
     joinScopesLoop ((Scope gs ss ps ls fs):xs) (Scope rgs rss rps rls rfs) =
         joinScopesLoop xs (Scope (gs ++ rgs) (ss ++ rss) (ps ++ rps) (ls ++ rls) (fs ++ rfs))
     joinScopesLoop [] res = res
+
+hideLocals :: Scope -> Scope
+hideLocals (Scope gs ss ps ls fs) = Scope gs ss ps (map (\ (Var n t v _) -> Var n t v False) ls) fs
 
 toRtl :: Ast -> (Rtl, Scope)
 toRtl tree = fileToRtl tree emptyScope
@@ -359,15 +363,15 @@ fileToRtl (File (x:xs)) scope = (expr ++ file, joinScopes [scope1, scope2])
 
 entityToRtl :: Ast -> Scope -> (Rtl, Scope)
 
-entityToRtl (VarDecl t n g s) scope = ([], (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing))
+entityToRtl (VarDecl t n g s) scope = ([], (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing True))
 
-entityToRtl (Init t n v) _ = ([], scopeAddGlo emptyScope $ Var n t (getValueFromAst v))
+entityToRtl (Init t n v) _ = ([], scopeAddGlo emptyScope $ Var n t (getValueFromAst v) True)
 
 entityToRtl (FunDecl (FuncType retType argTypes) name) scope = ([], scopeAddFun emptyScope (Fun name retType argTypes False 0))
 
 entityToRtl (Func (FuncType retType argTypes) name body) scope = ([Label ('_':name), Push reg_ebp, MovReg reg_ebp reg_esp] ++
-                                                                    (if (length ls) > 0
-                                                                        then [SubConst reg_esp (toInteger (length ls) * 4)]
+                                                                    (if numLocals > 0
+                                                                        then [SubConst reg_esp (numLocals * 4)]
                                                                         else []) ++
                                                                     bodyRtl ++
                                                                     (if endsOnRet body
@@ -375,19 +379,20 @@ entityToRtl (Func (FuncType retType argTypes) name body) scope = ([Label ('_':na
                                                                         else [Ret name]),
                                                                     (Scope [] ss [] [] [Fun name retType argTypes True numLocals]))
     where
-        (bodyRtl, _, (Scope _ ss _ ls _), numLocals) = blockToRtl body 0 (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] []), scope]) name
+        (bodyRtl, _, (Scope _ ss _ ls _)) = blockToRtl body 0 (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] []), scope]) name
+        numLocals = toInteger $ length ls
 
 
-blockToRtl :: Ast -> Reg -> Scope -> String -> (Rtl, Reg, Scope, Integer)
-blockToRtl (Block []) nextReg scope _ = ([], nextReg, emptyScope, 0)
+blockToRtl :: Ast -> Reg -> Scope -> String -> (Rtl, Reg, Scope)
+blockToRtl (Block []) nextReg scope _ = ([], nextReg, emptyScope)
 blockToRtl (Block [x]) nextReg scope funName = lineToRtl x nextReg scope funName
-blockToRtl (Block (x:xs)) nextReg scope funName = (expr ++ block, nextReg, joinScopes [scope1, scope2], numLocals + numLocals')
+blockToRtl (Block (x:xs)) nextReg scope funName = (expr ++ block, nextReg, hideLocals $ joinScopes [scope1, scope2])
     where
-        (expr, _, scope1, numLocals) = lineToRtl x nextReg scope funName
-        (block, _, scope2, numLocals') = blockToRtl (Block xs) nextReg (joinScopes [scope, scope1]) funName
+        (expr, _, scope1) = lineToRtl x nextReg scope funName
+        (block, _, scope2) = blockToRtl (Block xs) nextReg (joinScopes [scope, scope1]) funName
 
 
-lineToRtl :: Ast -> Reg -> Scope -> String -> (Rtl, Reg, Scope, Integer)
+lineToRtl :: Ast -> Reg -> Scope -> String -> (Rtl, Reg, Scope)
 
 lineToRtl (If cond thenBlock elseBlock) nextReg scope name
     | not $ isEmpty elseBlock = (condRtl ++
@@ -397,35 +402,35 @@ lineToRtl (If cond thenBlock elseBlock) nextReg scope name
                                  Label ("then" ++ show condReg)] ++
                                  thenBlockRtl ++
                                  [Label ("endif" ++ show condReg)],
-                                 0, joinScopes [thenNewVars, elseNewVars], numLocals + numLocals')
-    | otherwise = (condRtl ++ [Cmp condReg, Je ("endif" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0, thenNewVars, numLocals)
+                                 0, joinScopes [thenNewVars, elseNewVars])
+    | otherwise = (condRtl ++ [Cmp condReg, Je ("endif" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0, thenNewVars)
     where
         (condRtl, condReg) = exprToRtl cond nextReg scope
-        (thenBlockRtl, _, thenNewVars, numLocals) = blockToRtl thenBlock nextReg scope name
-        (elseBlockRtl, _, elseNewVars, numLocals') = blockToRtl elseBlock nextReg scope name
+        (thenBlockRtl, _, thenNewVars) = blockToRtl thenBlock nextReg scope name
+        (elseBlockRtl, _, elseNewVars) = blockToRtl elseBlock nextReg scope name
 
 lineToRtl (While cond block) nextReg scope name = ([Label ("while" ++ show condReg)] ++
                                          condRtl ++
                                          [Cmp condReg, Je ("endwhile" ++ show condReg)] ++
                                          blockRtl ++
                                          [Jmp ("while" ++ show condReg), Label ("endwhile" ++ show condReg)],
-                                         0, newVars, numLocals)
+                                         0, newVars)
     where
         (condRtl, condReg) = exprToRtl cond nextReg scope
-        (blockRtl, _, newVars, numLocals) = blockToRtl block nextReg scope name
+        (blockRtl, _, newVars) = blockToRtl block nextReg scope name
 
-lineToRtl (Return Nothing) nextReg _ name = ([Ret name], nextReg, emptyScope, 0)
+lineToRtl (Return Nothing) nextReg _ name = ([Ret name], nextReg, emptyScope)
 
 lineToRtl (Return (Just expr)) nextReg scope name = (exprRtl ++ [MovReg reg_eax reg, Ret name],
-                                            nextReg, emptyScope, 0)
+                                            nextReg, emptyScope)
     where
         (exprRtl, reg) = exprToRtl expr nextReg scope
 
-lineToRtl (VarDecl t n g s) nextReg _ _ = ([], nextReg, (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing), 1)
+lineToRtl (VarDecl t n g s) nextReg _ _ = ([], nextReg, (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing True))
 
-lineToRtl (Init t n v) nextReg _ _ = ([], nextReg, scopeAddGlo emptyScope $ Var n t (getValueFromAst v), 1)
+lineToRtl (Init t n v) nextReg _ _ = ([], nextReg, scopeAddGlo emptyScope $ Var n t (getValueFromAst v) True)
 
-lineToRtl a b c _ = let (d, e) = exprToRtl a b c in (d, e, emptyScope, 0)
+lineToRtl a b c _ = let (d, e) = exprToRtl a b c in (d, e, emptyScope)
 
 
 exprToRtl :: Ast -> Reg -> Scope -> (Rtl, Reg)
@@ -484,7 +489,7 @@ getValueFromAst _ = error "Non-constant value in global definition"
 
 argTypesToVars :: [(Type, String)] -> [Var]
 argTypesToVars list = argTypesToVarsLoop list [] where
-    argTypesToVarsLoop ((t,n):xs) res = argTypesToVarsLoop xs (res ++ [Var n t Nothing])
+    argTypesToVarsLoop ((t,n):xs) res = argTypesToVarsLoop xs (res ++ [Var n t Nothing True])
     argTypesToVarsLoop [] res = res
 
 handleArgPush :: [Reg] -> Rtl
@@ -540,7 +545,7 @@ toAsmExtern :: [Fun] -> Asm
 toAsmExtern funs = map (\ f -> "extern _" ++ funName f) (filter (\f -> (not $ funIsDef f) && (not $ any (\f2 -> funName f == funName f2 && funIsDef f2) funs)) funs)
 
 toAsmDataLine :: Var -> AsmLine
-toAsmDataLine (Var n t v) = n ++ ": " ++ (getSizeWordData $ getSizeInt t) ++ " " ++
+toAsmDataLine (Var n t v _) = n ++ ": " ++ (getSizeWordData $ getSizeInt t) ++ " " ++
     case v of
         Nothing -> "0"
         Just (Integer x) -> show x
