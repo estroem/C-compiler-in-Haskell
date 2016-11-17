@@ -461,22 +461,22 @@ exprToRtl (App op exprList) nextReg scope
             (expr2, reg2) = exprToRtl (exprList !! 0) reg1 scope
             (expr, reg) = exprToRtl (head exprList) nextReg scope
 
-exprToRtl (Call (Name name) args) nextReg scope = ([Push reg_eax] ++ 
+exprToRtl (Call (Name name) args) nextReg scope = ((if nextReg > 0 then [Push reg_eax] else []) ++ 
                                                argsRtl ++
                                                handleArgPush argRegs ++
                                                [CallName ('_':name) argRegs nextReg] ++
                                                [AddConst reg_esp (toInteger $ length args * 4)] ++
-                                               [MovReg (nextReg + 1) reg_eax, Pop reg_eax],
+                                               (if nextReg > 0 then [MovReg (nextReg + 1) reg_eax, Pop reg_eax] else []),
                                                nextReg + 1)
     where (argsRtl, argRegs) = handleCallArgs args nextReg scope
 
-exprToRtl (Call addr args) nextReg scope = ([Push reg_eax] ++ 
+exprToRtl (Call addr args) nextReg scope = ((if nextReg > 0 then [Push reg_eax] else []) ++ 
                                         addrRtl ++
                                         argsRtl ++
                                         handleArgPush argRegs ++
                                         [CallAddr addrReg argRegs nextReg] ++
                                         [AddConst reg_esp (toInteger $ length args * 4)] ++
-                                        [MovReg (nextReg + 1) reg_eax, Pop reg_eax],
+                                        (if nextReg > 0 then [MovReg (nextReg + 1) reg_eax, Pop reg_eax] else []),
                                         nextReg + 1)
     where
         (addrRtl, addrReg) = exprToRtl addr nextReg scope
