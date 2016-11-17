@@ -1,3 +1,12 @@
+{-
+ - TODO
+ - 
+ - Register handling
+ - Make loop and if labels unique
+ - Type checking
+ - 
+ -}
+
 import Data.Char
 import Data.List
 import Data.Maybe
