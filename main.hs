@@ -41,6 +41,7 @@ data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg I
              | FuncStart String | FuncEnd String | Ret String | Push Reg | LoadLoc Reg Integer
              | SaveLoc Integer Reg | Pop Reg | AddConst Reg Integer | SubConst Reg Integer
              | MulConst Reg Integer | DivConst Reg Integer | LoadLit Reg Lit | MovReg Reg Reg
+             | Addr Reg String | AddrLoc Reg Integer
     deriving (Show)
 type Reg = Integer
 
@@ -83,10 +84,10 @@ data Scope = Scope [Var] [Var] [Var] [Var] [Fun]
 type AsmLine = String
 type Asm = [AsmLine]
 
-operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 1 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0), (Op "$" 1 4 0),{- (Op "==" 2 0 0),-} (Op "!=" 2 0 0)]
+operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 1 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0), (Op "$" 1 4 0),{- (Op "==" 2 0 0),-} (Op "!=" 2 0 0), (Op "&" 1 4 0)]
 extraSymbols = [";", "(", ")", "{", "}", ","]
 
-opShoRtlist = ["+", "-", "*", "/", "++", "=", "$", "==", "!="]
+opShoRtlist = ["+", "-", "*", "/", "++", "=", "$", "==", "!=", "&"]
 
 --types = [(Type "int" 4), (Type "short" 2), (Type "byte" 1)]
 typeShoRtlist = ["int", "short", "byte", "char"]
@@ -386,10 +387,11 @@ entityToRtl (Func (FuncType retType argTypes) name body) scope = ([Label ('_':na
                                                                     (if endsOnRet body
                                                                         then []
                                                                         else [Ret name]),
-                                                                    (Scope [] ss [] [] [Fun name retType argTypes True numLocals]))
+                                                                    (Scope [] ss [] [] [thisFun]))
     where
-        (bodyRtl, _, (Scope _ ss _ ls _)) = blockToRtl body 0 (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] []), scope]) name
+        (bodyRtl, _, (Scope _ ss _ ls _)) = blockToRtl body 0 (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] [thisFun]), scope]) name
         numLocals = toInteger $ length ls
+        thisFun = Fun name retType argTypes True numLocals
 
 
 blockToRtl :: Ast -> Reg -> Scope -> String -> (Rtl, Reg, Scope)
@@ -465,6 +467,7 @@ exprToRtl (App op exprList) nextReg scope
     | symbol op == "$" = (expr ++ [DeRef reg], reg)
 --  | symbol op == "==" = (expr1 ++ expr2 ++ [Cmp reg2 reg1], reg2)
     | symbol op == "!=" = (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
+    | symbol op == "&" = handleAddr (head exprList) nextReg scope
         where
             (expr1, reg1) = exprToRtl (exprList !! 1) nextReg scope
             (expr2, reg2) = exprToRtl (exprList !! 0) reg1 scope
@@ -527,6 +530,18 @@ handleAssign (App op [addrExpr]) expr nextReg scope = (addrRtl ++ exprRtl ++ [Sa
     where
         (addrRtl, addrReg) = exprToRtl addrExpr nextReg scope
         (exprRtl, exprReg) = exprToRtl expr addrReg scope
+
+handleAddr :: Ast -> Reg -> Scope -> (Rtl, Reg)
+handleAddr (Name name) nextReg scope =
+    if isJust offset
+        then ([AddrLoc (nextReg + 1) (fromJust offset)], nextReg + 1)
+        else if scopeHasVar scope name
+            then ([Addr (nextReg + 1) name], nextReg + 1)
+            else if scopeHasFun scope name
+                then ([Addr (nextReg + 1) ("_" ++ name)], nextReg + 1)
+                else error $ "Undefined variable \"" ++ name ++ "\""
+    where offset = getOffset scope name
+handleAddr _ _ _ = error "Can only get address of lvalue"
 
 isEmpty :: Ast -> Bool
 isEmpty (Block list) = null list
@@ -600,6 +615,8 @@ toAsmLine (MulConst reg int) _ _     = (["mul " ++ getReg reg ++ ", " ++ show in
 toAsmLine (DivConst reg int) _ _     = (["div " ++ getReg reg ++ ", " ++ show int], [])
 toAsmLine (LoadLit reg l) _ ls       = (["mov " ++ getReg reg ++ ", ?strings + " ++ show (litsGetSize ls)], [l])
 toAsmLine (MovReg reg1 reg2) _ _     = (["mov " ++ getReg reg1 ++ ", " ++ getReg reg2], [])
+toAsmLine (Addr reg name) _ _        = (["mov " ++ getReg reg ++ ", " ++ name], [])
+toAsmLine (AddrLoc reg offset) _ _   = (["lea " ++ getReg reg ++ ", [" ++ getReg reg_ebp ++ (if offset > 0 then "+" else "") ++ show offset ++ "]"], [])
 
 retNumLocals :: Scope -> RtlLine -> RtlLine
 retNumLocals s (Ret n) = Ret $ show $ (funcGetNumLoc s n) * 4
