@@ -197,9 +197,11 @@ parseLine [] = (undefined, [])
 parseLine ("if":"(":xs) = parseIf xs
 parseLine ("while":"(":xs) = parseWhile xs
 parseLine (x:xs)
-    | isType x && length xs > 0 && all isAlpha (head xs) = (VarDecl (getTypeFromSym x) (head xs) False, xs)
+    | isType x = (VarDecl decl name False, if (head rest) == ";" then tail rest else name:rest)
     | otherwise = (fst expr, drop 1 $ snd expr)
-        where expr = parseExpr (x:xs)
+        where
+            (decl, name, rest) = parseDecl (x:xs)
+            expr = parseExpr (x:xs)
 
 isType :: String -> Bool
 isType str = elem str typeShoRtlist
