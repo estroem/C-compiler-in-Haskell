@@ -12,7 +12,7 @@ import Data.List
 import Data.Maybe
 import System.Environment
 
-data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | VarDecl Type String Bool Bool
+data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | VarDecl Type String Bool
          | If Ast Ast Ast | Call Ast [Ast] | Init Type String Ast
          | Func Type String Ast | File [Ast] | FunDecl Type String | Literal String | Return (Maybe Ast)
          | While Ast Ast
@@ -136,7 +136,7 @@ parseTopLvlLine (x:xs) =
         _              -> if (head rest) == "="
                             then (Init decl name expr, tail exprRest)
                             else if (head rest) == ";"
-                                then (VarDecl decl name True False, tail rest)
+                                then (VarDecl decl name False, tail rest)
                                 else error "Expected ; or ="
     where
         (decl, name, rest) = parseDecl (x:xs)
@@ -197,7 +197,7 @@ parseLine [] = (undefined, [])
 parseLine ("if":"(":xs) = parseIf xs
 parseLine ("while":"(":xs) = parseWhile xs
 parseLine (x:xs)
-    | isType x && length xs > 0 && all isAlpha (head xs) = (VarDecl (getTypeFromSym x) (head xs) False False, xs)
+    | isType x && length xs > 0 && all isAlpha (head xs) = (VarDecl (getTypeFromSym x) (head xs) False, xs)
     | otherwise = (fst expr, drop 1 $ snd expr)
         where expr = parseExpr (x:xs)
 
@@ -373,7 +373,7 @@ fileToRtl (File (x:xs)) scope = (expr ++ file, joinScopes [scope1, scope2])
 
 entityToRtl :: Ast -> Scope -> (Rtl, Scope)
 
-entityToRtl (VarDecl t n g s) scope = ([], (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing True))
+entityToRtl (VarDecl t n s) scope = ([], scopeAddGlo emptyScope (Var n t Nothing True))
 
 entityToRtl (Init t n v) _ = ([], scopeAddGlo emptyScope $ Var n t (getValueFromAst v) True)
 
@@ -437,9 +437,7 @@ lineToRtl (Return (Just expr)) nextReg scope name = (exprRtl ++ [MovReg reg_eax 
     where
         (exprRtl, reg) = exprToRtl expr nextReg scope
 
-lineToRtl (VarDecl t n g s) nextReg _ _ = ([], nextReg, (if g then scopeAddGlo else if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing True))
-
-lineToRtl (Init t n v) nextReg _ _ = ([], nextReg, scopeAddGlo emptyScope $ Var n t (getValueFromAst v) True)
+lineToRtl (VarDecl t n s) nextReg _ _ = ([], nextReg, (if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing True))
 
 lineToRtl a b c _ = let (d, e) = exprToRtl a b c in (d, e, emptyScope)
 
