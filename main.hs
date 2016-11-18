@@ -196,6 +196,11 @@ parseLine :: [String] -> (Ast, [String])
 parseLine [] = (undefined, [])
 parseLine ("if":"(":xs) = parseIf xs
 parseLine ("while":"(":xs) = parseWhile xs
+parseLine ("return":r)
+    | (head r) == ";" = (Return Nothing, tail r)
+    | otherwise = (Return $ Just expr, drop 1 r2)
+    where
+        (expr, r2) = parseExpr r
 parseLine (x:xs)
     | isType x = (VarDecl decl name False, if (head rest) == ";" then tail rest else name:rest)
     | otherwise = (fst expr, drop 1 $ snd expr)
@@ -232,11 +237,6 @@ parseCallArgs (x:xs) = (arg : nextArgs, rest)
 
 parseExpr :: [String] -> (Ast, [String])
 parseExpr [] = (undefined, [])
-parseExpr ("return":r)
-    | (head r) == ";" = (Return Nothing, r)
-    | otherwise = (Return $ Just expr, r2)
-    where
-        (expr, r2) = parseExpr r
 parseExpr (x:xs) = (prefixToTree $ infixToPrefix $ fst exprList, snd exprList)
     where
         exprList = getExprList (x:xs)
