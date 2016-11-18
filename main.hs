@@ -352,6 +352,12 @@ scopeHasVar (Scope gs ss ps ls fs) name = any (\ v -> (varName v) == name && var
 scopeHasFun :: Scope -> String -> Bool
 scopeHasFun (Scope gs ss ps ls fs) name = any (\ f -> (funName f) == name) fs
 
+scopeGetVar :: Scope -> String -> Maybe Var
+scopeGetVar (Scope gs ss ps ls fs) name = find (\ v -> (varName v) == name) (gs ++ ss ++ ps ++ ls)
+
+scopeGetFun :: Scope -> String -> Maybe Fun
+scopeGetFun (Scope gs ss ps ls fs) name = find (\ f -> (funName f) == name) fs
+
 joinScopes :: [Scope] -> Scope
 joinScopes list = joinScopesLoop list emptyScope where
     joinScopesLoop ((Scope gs ss ps ls fs):xs) (Scope rgs rss rps rls rfs) =
@@ -551,6 +557,30 @@ endsOnRet (Block []) = False
 endsOnRet (Block b) = case last b of
     (Return _) -> True
     _          -> False
+
+-- TYPECHECK
+
+getType :: Ast -> Scope -> Type
+getType (Number _) _ = (PrimType "int")
+getType (Name n) s = varType $ fromJust $ scopeGetVar s n
+getType (Literal _) _ = (PtrType $ PrimType "char")
+
+getType (App op args) s
+    | symbol op == "+" = (PrimType "int")
+    | symbol op == "-" = (PrimType "int")
+    | symbol op == "*" = (PrimType "int")
+    | symbol op == "/" = (PrimType "int")
+    | symbol op == "=" = getType (args !! 1) s
+    | symbol op == "$" = case getType (args !! 0) s of
+        (PtrType typ) -> typ
+        _ -> error "Can not dereference non-pointer type"
+    | symbol op == "&" = (PtrType $ getType (args !! 0) s)
+    | symbol op == "!=" = (PrimType "int")
+
+getType (Call (Name n) _) s = funRetType $ fromJust $ scopeGetFun s n
+getType (Call addr _) s = case getType addr s of
+    (PtrType (FuncType ret _)) -> ret
+    _ -> error "Trying to call pointer to non function"
 
 -- TO ASM
 
