@@ -478,7 +478,7 @@ exprToRtl (App op exprList) nextReg scope =
             "-" -> (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
             "*" -> (expr1 ++ expr2 ++ [Mul reg2 reg1], reg2)
             "/" -> (expr1 ++ expr2 ++ [Div reg2 reg1], reg2)
-            "=" -> handleAssign (head exprList) (last exprList) nextReg scop
+            "=" -> handleAssign (head exprList) (last exprList) nextReg scope
             "$" -> (expr ++ [DeRef reg], reg)
         --  "==" -> (expr1 ++ expr2 ++ [Cmp reg2 reg1], reg2)
             "!=" -> (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
