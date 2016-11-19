@@ -460,10 +460,15 @@ exprToRtl (Name name) nextReg scope =
     if scopeHasVar scope name
         then let i = getOffset scope name in
             if isJust i
-                then ([LoadLoc (nextReg + 1) (fromJust i)], nextReg + 1, typ)
-                else ([Load (nextReg + 1) name], nextReg + 1, typ)
-        else error $ "Variable not in scope: " ++ name
-    where typ = Just $ varType $ fromJust $ scopeGetVar scope name
+                then ([LoadLoc (nextReg + 1) (fromJust i)], nextReg + 1, varTyp)
+                else ([Load (nextReg + 1) name], nextReg + 1, varTyp)
+        else if scopeHasFun scope name
+            then ([Load (nextReg + 1) name], nextReg + 1, funTyp)
+            else error $ "Variable not in scope: " ++ name
+    where
+        varTyp = Just $ varType $ fromJust $ scopeGetVar scope name
+        funTyp = Just $ FuncType (funRetType fun) (funArgs fun)
+        fun = fromJust $ scopeGetFun scope name
 
 exprToRtl (App op exprList) nextReg scope =
     (fst a, snd a, if (numArgs op) == 1
