@@ -31,8 +31,8 @@ data ExprElem = Operator Op | Ast Ast
 instance Show Op where
     show (Op {symbol=s}) = show s
 
-data Type = PrimType String | PtrType Type | FuncType Type [(Type, String)] | ArrayType Type | EmptyType
-    deriving (Show)
+data Type = PrimType String | PtrType Type | FuncType Type [(Type, String)] | ArrayType Type | EmptyType | NumType
+    deriving (Show, Eq)
 
 data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer
              | Load Reg String | Save String Reg Integer | SaveToPtr Reg Reg Integer | Label String
@@ -89,7 +89,7 @@ extraSymbols = [";", "(", ")", "{", "}", ","]
 
 opShoRtlist = ["+", "-", "*", "/", "++", "=", "$", "==", "!=", "&"]
 
---types = [(Type "int" 4), (Type "short" 2), (Type "byte" 1)]
+prims = [("int", 4), ("short", 2), ("char", 1), ("float", 4), ("double", 8)]
 typeShoRtlist = ["int", "short", "byte", "char"]
 
 --- TOKENIZE
@@ -424,7 +424,7 @@ lineToRtl (If cond thenBlock elseBlock) nextReg scope name
                                  0, joinScopes [thenNewVars, elseNewVars])
     | otherwise = (condRtl ++ [Cmp condReg, Je ("endif" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], 0, thenNewVars)
     where
-        (condRtl, condReg) = exprToRtl cond nextReg scope
+        (condRtl, condReg, _) = exprToRtl cond nextReg scope
         (thenBlockRtl, _, thenNewVars) = blockToRtl thenBlock nextReg scope name
         (elseBlockRtl, _, elseNewVars) = blockToRtl elseBlock nextReg scope name
 
@@ -435,7 +435,7 @@ lineToRtl (While cond block) nextReg scope name = ([Label ("while" ++ show condR
                                          [Jmp ("while" ++ show condReg), Label ("endwhile" ++ show condReg)],
                                          0, newVars)
     where
-        (condRtl, condReg) = exprToRtl cond nextReg scope
+        (condRtl, condReg, _) = exprToRtl cond nextReg scope
         (blockRtl, _, newVars) = blockToRtl block nextReg scope name
 
 lineToRtl (Return Nothing) nextReg _ name = ([Ret name], nextReg, emptyScope)
@@ -443,41 +443,46 @@ lineToRtl (Return Nothing) nextReg _ name = ([Ret name], nextReg, emptyScope)
 lineToRtl (Return (Just expr)) nextReg scope name = (exprRtl ++ [MovReg reg_eax reg, Ret name],
                                             nextReg, emptyScope)
     where
-        (exprRtl, reg) = exprToRtl expr nextReg scope
+        (exprRtl, reg, typ) = exprToRtl expr nextReg scope
 
 lineToRtl (VarDecl t n s) nextReg _ _ = ([], nextReg, (if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing True))
 
-lineToRtl a b c _ = let (d, e) = exprToRtl a b c in (d, e, emptyScope)
+lineToRtl a b c _ = let (d, e, _) = exprToRtl a b c in (d, e, emptyScope)
 
 
-exprToRtl :: Ast -> Reg -> Scope -> (Rtl, Reg)
+exprToRtl :: Ast -> Reg -> Scope -> (Rtl, Reg, Maybe Type)
 
-exprToRtl (Number x) nextReg scope = ([Mov (nextReg + 1) x], nextReg + 1)
+exprToRtl (Number x) nextReg scope = ([Mov (nextReg + 1) x], nextReg + 1, getIntType x)
 
-exprToRtl (Literal l) nextReg _ = ([LoadLit (nextReg + 1) l], nextReg + 1)
+exprToRtl (Literal l) nextReg _ = ([LoadLit (nextReg + 1) l], nextReg + 1, Just $ PtrType $ PrimType "char")
 
 exprToRtl (Name name) nextReg scope =
     if scopeHasVar scope name
         then let i = getOffset scope name in
             if isJust i
-                then ([LoadLoc (nextReg + 1) (fromJust i)], nextReg + 1)
-                else ([Load (nextReg + 1) name], nextReg + 1)
+                then ([LoadLoc (nextReg + 1) (fromJust i)], nextReg + 1, typ)
+                else ([Load (nextReg + 1) name], nextReg + 1, typ)
         else error $ "Variable not in scope: " ++ name
+    where typ = Just $ varType $ fromJust $ scopeGetVar scope name
 
-exprToRtl (App op exprList) nextReg scope
-    | symbol op == "+" = (expr1 ++ expr2 ++ [Add reg2 reg1], reg2)
-    | symbol op == "-" = (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
-    | symbol op == "*" = (expr1 ++ expr2 ++ [Mul reg2 reg1], reg2)
-    | symbol op == "/" = (expr1 ++ expr2 ++ [Div reg2 reg1], reg2)
-    | symbol op == "=" = handleAssign (head exprList) (last exprList) nextReg scope
-    | symbol op == "$" = (expr ++ [DeRef reg], reg)
---  | symbol op == "==" = (expr1 ++ expr2 ++ [Cmp reg2 reg1], reg2)
-    | symbol op == "!=" = (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
-    | symbol op == "&" = handleAddr (head exprList) nextReg scope
-        where
-            (expr1, reg1) = exprToRtl (exprList !! 1) nextReg scope
-            (expr2, reg2) = exprToRtl (exprList !! 0) reg1 scope
-            (expr, reg) = exprToRtl (head exprList) nextReg scope
+exprToRtl (App op exprList) nextReg scope =
+    (fst a, snd a, if (numArgs op) == 1
+                       then getType (symbol op) (fromJust typ) undefined
+                       else getType (symbol op) (fromJust lType) (fromJust rType))
+    where
+        (expr1, reg1, rType) = exprToRtl (exprList !! 1) nextReg scope
+        (expr2, reg2, lType) = exprToRtl (exprList !! 0) reg1 scope
+        (expr, reg, typ) = exprToRtl (head exprList) nextReg scope
+        a = case symbol op of
+                "+" -> (expr1 ++ expr2 ++ [Add reg2 reg1], reg2)
+                "-" -> (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
+                "*" -> (expr1 ++ expr2 ++ [Mul reg2 reg1], reg2)
+                "/" -> (expr1 ++ expr2 ++ [Div reg2 reg1], reg2)
+                "=" -> handleAssign (head exprList) (last exprList) nextReg scope
+                "$" -> (expr ++ [DeRef reg], reg)
+            --  "==" -> (expr1 ++ expr2 ++ [Cmp reg2 reg1], reg2)
+                "!=" -> (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
+                "&" -> handleAddr (head exprList) nextReg scope
 
 exprToRtl (Call (Name name) args) nextReg scope = ((if nextReg > 0 then [Push reg_eax] else []) ++ 
                                                argsRtl ++
@@ -485,8 +490,10 @@ exprToRtl (Call (Name name) args) nextReg scope = ((if nextReg > 0 then [Push re
                                                [CallName ('_':name) argRegs nextReg] ++
                                                [AddConst reg_esp (toInteger $ length args * 4)] ++
                                                (if nextReg > 0 then [MovReg (nextReg + 1) reg_eax, Pop reg_eax] else []),
-                                               nextReg + 1)
-    where (argsRtl, argRegs) = handleCallArgs args nextReg scope
+                                               nextReg + 1, typ)
+    where
+        (argsRtl, argRegs) = handleCallArgs args nextReg scope
+        typ = Just $ funRetType $ fromJust $ scopeGetFun scope name
 
 exprToRtl (Call addr args) nextReg scope = ((if nextReg > 0 then [Push reg_eax] else []) ++ 
                                         addrRtl ++
@@ -495,10 +502,13 @@ exprToRtl (Call addr args) nextReg scope = ((if nextReg > 0 then [Push reg_eax] 
                                         [CallAddr addrReg argRegs nextReg] ++
                                         [AddConst reg_esp (toInteger $ length args * 4)] ++
                                         (if nextReg > 0 then [MovReg (nextReg + 1) reg_eax, Pop reg_eax] else []),
-                                        nextReg + 1)
+                                        nextReg + 1, typ)
     where
-        (addrRtl, addrReg) = exprToRtl addr nextReg scope
+        (addrRtl, addrReg, addrType) = exprToRtl addr nextReg scope
         (argsRtl, argRegs) = handleCallArgs args addrReg scope
+        typ = case addrType of
+            Just (PtrType (FuncType t _)) -> Just t
+            _ -> error "Trying to call pointer to non function"
 
 getValueFromAst :: Ast -> Maybe Value
 getValueFromAst (Number x) = Just $ Integer x
@@ -519,23 +529,30 @@ handleCallArgs :: [Ast] -> Reg -> Scope -> (Rtl, [Reg])
 handleCallArgs [] _ _ = ([], [])
 handleCallArgs (x:xs) nextReg scope = (argRtl ++ finalRtl, argReg : finalReg)
     where
-        (argRtl, argReg) = exprToRtl x nextReg scope
+        (argRtl, argReg, _) = exprToRtl x nextReg scope
         (finalRtl, finalReg) = handleCallArgs xs argReg scope
 
 handleAssign :: Ast -> Ast -> Reg -> Scope -> (Rtl, Reg)
 handleAssign (Name name) expr nextReg scope =
     if scopeHasVar scope name
-        then let i = getOffset scope name in
-            if isJust i
-                then (exprRtl ++ [SaveLoc (fromJust i) assignReg], assignReg)
-                else (exprRtl ++ [Save name assignReg 4], assignReg)
+        then if canCast lType (fromJust rType)
+            then let i = getOffset scope name in
+                if isJust i
+                    then (exprRtl ++ [SaveLoc (fromJust i) assignReg], assignReg)
+                    else (exprRtl ++ [Save name assignReg 4], assignReg)
+            else error $ "Cannot autocast " ++ (show $ fromJust rType) ++ " to " ++ (show lType)
         else error $ "Variable not in scope: " ++ name
-    where (exprRtl, assignReg) = exprToRtl expr nextReg scope
-
-handleAssign (App op [addrExpr]) expr nextReg scope = (addrRtl ++ exprRtl ++ [SaveToPtr addrReg exprReg 4], exprReg)
     where
-        (addrRtl, addrReg) = exprToRtl addrExpr nextReg scope
-        (exprRtl, exprReg) = exprToRtl expr addrReg scope
+        (exprRtl, assignReg, rType) = exprToRtl expr nextReg scope
+        lType = varType $ fromJust $ scopeGetVar scope name
+
+handleAssign (App op [addrExpr]) expr nextReg scope =
+    if canCast (fromJust lType) (fromJust rType)
+        then (addrRtl ++ exprRtl ++ [SaveToPtr addrReg exprReg 4], exprReg)
+        else error $ "Cannot autocast " ++ (show $ fromJust rType) ++ " to " ++ (show $ fromJust lType)
+    where
+        (addrRtl, addrReg, lType) = exprToRtl addrExpr nextReg scope
+        (exprRtl, exprReg, rType) = exprToRtl expr addrReg scope
 
 handleAddr :: Ast -> Reg -> Scope -> (Rtl, Reg)
 handleAddr (Name name) nextReg scope =
@@ -560,27 +577,66 @@ endsOnRet (Block b) = case last b of
 
 -- TYPECHECK
 
-getType :: Ast -> Scope -> Type
-getType (Number _) _ = (PrimType "int")
-getType (Name n) s = varType $ fromJust $ scopeGetVar s n
-getType (Literal _) _ = (PtrType $ PrimType "char")
+getIntType :: Integer -> Maybe Type
+getIntType i =
+    if snd t /= 0
+        then Just $ PrimType $ fst $ t
+        else Nothing
+    where t = foldl (\ a b -> if ((snd a) == 0 || (snd b) < (snd a)) && 2^(snd b * 8) `div` 2 > i then b else a) ("", 0) prims
 
-getType (App op args) s
-    | symbol op == "+" = (PrimType "int")
-    | symbol op == "-" = (PrimType "int")
-    | symbol op == "*" = (PrimType "int")
-    | symbol op == "/" = (PrimType "int")
-    | symbol op == "=" = getType (args !! 1) s
-    | symbol op == "$" = case getType (args !! 0) s of
-        (PtrType typ) -> typ
+canCast :: Type -> Type -> Bool
+canCast (PrimType l) (PrimType r)
+    | l == r = True
+    | typeIsFloat l && typeIsFloat r = (typeSize l) > (typeSize r)
+    | not (typeIsFloat l) && typeIsFloat r = False
+    | typeIsFloat l && not (typeIsFloat r) = True
+    | otherwise = (typeSize l) > (typeSize r)
+canCast l r = l == r
+
+getType :: String -> Type -> Type -> Maybe Type
+getType sym l r = case sym of
+    "+" -> getAddType l r
+    "-" -> getAddType l r
+    "*" -> getMulType l r
+    "/" -> getMulType l r
+    "=" -> Just l
+    "$" -> case l of
+        (PtrType t) -> Just t
         _ -> error "Can not dereference non-pointer type"
-    | symbol op == "&" = (PtrType $ getType (args !! 0) s)
-    | symbol op == "!=" = (PrimType "int")
+    "&" -> Just $ PtrType l
+    "!=" -> Just $ PrimType "int"
 
-getType (Call (Name n) _) s = funRetType $ fromJust $ scopeGetFun s n
-getType (Call addr _) s = case getType addr s of
-    (PtrType (FuncType ret _)) -> ret
-    _ -> error "Trying to call pointer to non function"
+getMulType :: Type -> Type -> Maybe Type
+getMulType (PtrType _) _ = Nothing
+getMulType _ (PtrType _) = Nothing
+getMulType l r = getAddType l r
+
+getAddType :: Type -> Type -> Maybe Type
+getAddType (PrimType l) (PrimType r)
+    | l == r = Just $ PrimType l
+    | typeIsFloat l && typeIsFloat r = Just $ PrimType $ biggestType l r
+    | not (typeIsFloat l) && typeIsFloat r = Just $ PrimType r
+    | typeIsFloat l && not (typeIsFloat r) = Just $ PrimType l
+    | otherwise = Just $ PrimType $ biggestType l r
+getAddType (PtrType _) (PtrType _) = Nothing
+getAddType l@(PtrType _) (PrimType r)
+    | typeIsFloat r = Nothing
+    | otherwise = Just l
+getAddType (PrimType l) r@(PtrType _)
+    | typeIsFloat l = Nothing
+    | otherwise = Just r
+getAddType _ _ = Nothing
+
+typeIsFloat :: String -> Bool
+typeIsFloat t = if t == "float" || t == "double" then True else False
+
+biggestType :: String -> String -> String
+biggestType a b = if (f a) >= (f b) then a else b
+    where
+        f = \ x -> snd $ fromJust $ find ((==x) . fst) prims
+
+typeSize :: String -> Integer
+typeSize t = snd $ fromJust $ find ((==t) . fst) prims
 
 -- TO ASM
 
