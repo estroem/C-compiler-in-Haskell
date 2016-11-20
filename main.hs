@@ -446,10 +446,13 @@ lineToRtl (While cond block) nextReg scope name = ([Label ("while" ++ show condR
 
 lineToRtl (Return Nothing) nextReg _ name = ([Ret name], nextReg, emptyScope)
 
-lineToRtl (Return (Just expr)) nextReg scope name = (exprRtl ++ [MovReg reg_eax reg, Ret name],
-                                            nextReg, emptyScope)
+lineToRtl (Return (Just expr)) nextReg scope name =
+    if canCast retType (fromJust exprType)
+        then (exprRtl ++ [MovReg reg_eax reg, Ret name], nextReg, emptyScope)
+        else error $ "Cannot autocast " ++ (show $ fromJust exprType) ++ " to " ++ (show retType)
     where
-        (exprRtl, reg, typ) = exprToRtl expr nextReg scope
+        (exprRtl, reg, exprType) = exprToRtl expr nextReg scope
+        retType = funRetType $ fromJust $ scopeGetFun scope name
 
 lineToRtl (VarDecl t n s) nextReg _ _ = ([], nextReg, (if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing True))
 
