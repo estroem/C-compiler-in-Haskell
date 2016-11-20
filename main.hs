@@ -3,7 +3,6 @@
  - 
  - Register handling
  - Make loop and if labels unique
- - Type checking
  - 
  -}
 
@@ -31,8 +30,15 @@ data ExprElem = Operator Op | Ast Ast
 instance Show Op where
     show (Op {symbol=s}) = show s
 
-data Type = PrimType String | PtrType Type | FuncType Type [(Type, String)] | ArrayType Type | EmptyType | NumType
-    deriving (Show, Eq)
+data Type = PrimType String | PtrType Type | FuncType Type [(Type, String)] | ArrayType Type | EmptyType
+    deriving (Show)
+
+instance Eq Type where
+    (PtrType a) == (PtrType b) = a == b
+    (PrimType a) == (PrimType b) = a == b
+    (FuncType a b) == (FuncType c d) = a == c && (fst $ unzip b) == (fst $ unzip d)
+    (ArrayType a) == (ArrayType b) = a == b
+    EmptyType == EmptyType = True
 
 data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer
              | Load Reg String | Save String Reg Integer | SaveToPtr Reg Reg Integer | Label String
