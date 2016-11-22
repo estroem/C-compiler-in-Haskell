@@ -31,7 +31,6 @@ instance Show Op where
     show (Op {symbol=s}) = show s
 
 data Type = PrimType String | PtrType Type | FuncType Type [(Type, String)] | ArrayType Type | EmptyType
-    deriving (Show)
 
 instance Eq Type where
     (PtrType a) == (PtrType b) = a == b
@@ -40,6 +39,9 @@ instance Eq Type where
     (ArrayType a) == (ArrayType b) = a == b
     EmptyType == EmptyType = True
     _ == _ = False
+
+instance Show Type where
+    show t = showType t ""
 
 data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer
              | Load Reg String | Save String Reg Integer | SaveToPtr Reg Reg Integer | Label String
@@ -652,6 +654,13 @@ biggestType a b = if (f a) >= (f b) then a else b
 
 typeSize :: String -> Integer
 typeSize t = snd $ fromJust $ find ((==t) . fst) prims
+
+showType :: Type -> String -> String
+showType (PrimType t) str = t ++ str
+showType (PtrType t) str = showType t $ "*" ++ str
+showType (FuncType ret args) str = showType ret $ "(" ++ str ++ ")(" ++ (intercalate ", " $ map ((flip showType) "") $ fst $ unzip args) ++ ")"
+showType (ArrayType t) str = showType t $ str ++ "[]"
+showType EmptyType _ = "EmptyType"
 
 -- TO ASM
 
