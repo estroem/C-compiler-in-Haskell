@@ -39,6 +39,7 @@ instance Eq Type where
     (FuncType a b) == (FuncType c d) = a == c && (fst $ unzip b) == (fst $ unzip d)
     (ArrayType a) == (ArrayType b) = a == b
     EmptyType == EmptyType = True
+    _ == _ = False
 
 data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer
              | Load Reg String | Save String Reg Integer | SaveToPtr Reg Reg Integer | Label String
