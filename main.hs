@@ -658,7 +658,10 @@ typeSize t = snd $ fromJust $ find ((==t) . fst) prims
 showType :: Type -> String -> String
 showType (PrimType t) str = t ++ str
 showType (PtrType t) str = showType t $ "*" ++ str
-showType (FuncType ret args) str = showType ret $ "(" ++ str ++ ")(" ++ (intercalate ", " $ map ((flip showType) "") $ fst $ unzip args) ++ ")"
+showType (FuncType ret args) str =
+    showType ret $ "(" ++ str ++ ")(" ++
+                   (intercalate ", " $
+                        map ((flip showType) "") $ fst $ unzip args) ++ ")"
 showType (ArrayType t) str = showType t $ str ++ "[]"
 showType EmptyType _ = "EmptyType"
 
