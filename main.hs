@@ -149,7 +149,7 @@ parseTopLvlLine (x:xs) =
     case decl of
         (FuncType _ _) -> if (head rest) == ";"
                               then (FunDecl decl name, tail rest)
-                              else let block = parseExprOrBlock rest
+                              else let block = parseLineOrBlock rest
                                   in (Func decl name (fst block), snd block)
         _              -> if (head rest) == "="
                             then (Init decl name expr, tail exprRest)
@@ -236,14 +236,14 @@ parseIf (x:xs) =
         else (If (fst expr) (fst block1) (Block []), snd block1)
     where
         expr = parseExpr (x:xs)
-        block1 = parseExprOrBlock $ drop 1 $ snd expr
-        block2 = parseExprOrBlock $ drop 1 $ snd block1
+        block1 = parseLineOrBlock $ drop 1 $ snd expr
+        block2 = parseLineOrBlock $ drop 1 $ snd block1
 
 parseWhile :: [String] -> (Ast, [String])
 parseWhile (x:xs) = (While (fst cond) (fst block), snd block)
     where
         cond = parseExpr (x:xs)
-        block = parseExprOrBlock $ drop 1 $ snd cond
+        block = parseLineOrBlock $ drop 1 $ snd cond
 
 parseCallArgs :: [String] -> ([Ast], [String])
 parseCallArgs ("(":")":xs) = ([], xs)
@@ -259,11 +259,11 @@ parseExpr (x:xs) = (prefixToTree $ infixToPrefix $ fst exprList, snd exprList)
     where
         exprList = getExprList (x:xs)
 
-parseExprOrBlock :: [String] -> (Ast, [String])
-parseExprOrBlock (";":xs) = (Block [], xs)
-parseExprOrBlock ("{":xs) = parseBlock xs
-parseExprOrBlock (x:xs) = (Block [fst expr], tail $ snd expr)
-    where expr = parseExpr (x:xs)
+parseLineOrBlock :: [String] -> (Ast, [String])
+parseLineOrBlock (";":xs) = (Block [], xs)
+parseLineOrBlock ("{":xs) = parseBlock xs
+parseLineOrBlock (x:xs) = (Block [fst line], snd line)
+    where line = parseLine (x:xs)
 
 parseSingleExpr :: [String] -> (Ast, [String])
 parseSingleExpr (x:xs) =
