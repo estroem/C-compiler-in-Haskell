@@ -17,7 +17,7 @@ import System.Environment
 data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | VarDecl Type String Bool
          | If Ast Ast Ast | Call Ast [Ast] | Init Type String Ast
          | Func Type String Ast | File [Ast] | FunDecl Type String | Literal String | Return (Maybe Ast)
-         | While Ast Ast
+         | While Ast Ast | ArrayDeref Ast Ast
     deriving (Show)
 
 data Op = Op
@@ -106,7 +106,7 @@ type AsmLine = String
 type Asm = [AsmLine]
 
 operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 1 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0), (Op "$" 1 4 0),{- (Op "==" 2 0 0),-} (Op "!=" 2 0 0), (Op "&" 1 4 0)]
-extraSymbols = [";", "(", ")", "{", "}", ","]
+extraSymbols = [";", "(", ")", "{", "}", ",", "[", "]"]
 
 opShoRtlist = ["+", "-", "*", "/", "++", "=", "$", "==", "!=", "&"]
 
@@ -284,12 +284,16 @@ parseSingleExpr (x:xs) =
                 then
                     let args = (parseCallArgs $ tail $ snd expr)
                         in (Call (fst expr) (fst args), snd args)
-                else (fst expr, tail $ snd expr)
+                else if (snd expr) !! 1 == "["
+                    then
+                        let offset = parseExpr $ drop 2 (snd expr)
+                            in (ArrayDeref (fst expr) (fst offset), drop 1 $ snd offset)
+                    else (fst expr, tail $ snd expr)
 
 getExprList :: [String] -> ([ExprElem], [String])
 getExprList [] = ([], []) -- error "Unexpected end of expression"
 getExprList (x:xs)
-    | x == ")" || x == "," || x == ";" = ([], (x:xs))
+    | x == ")" || x == "," || x == ";" || x == "]" = ([], (x:xs))
     | elem x opShoRtlist = let exprList = getExprList xs in ((Operator (getOpFromSym x)) : fst exprList, snd exprList)
     | otherwise =  let exprList = getExprList (snd expr) in ((Ast (fst expr)) : fst exprList, snd exprList)
         where
@@ -540,6 +544,9 @@ exprToRtl (Call addr args) nextReg scope = ((if nextReg > 0 then [Push reg_eax] 
         typ = case addrType of
             Just (PtrType (FuncType t _)) -> Just t
             _ -> error "Trying to call pointer to non function"
+
+exprToRtl (ArrayDeref addr offset) nextReg scope =
+    exprToRtl (App (getOpFromSym "$") [App (getOpFromSym "+") [addr, offset]]) nextReg scope
 
 getValueFromAst :: Ast -> Maybe Value
 getValueFromAst (Number x) = Just $ Integer x
