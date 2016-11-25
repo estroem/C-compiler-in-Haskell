@@ -43,6 +43,15 @@ instance Eq Type where
 instance Show Type where
     show t = showType t ""
 
+data IdElem = FuncId String | LoopId Integer | IfId Integer
+
+instance Show IdElem where
+    show (FuncId s) = s
+    show (LoopId i) = "loop" ++ show i
+    show (IfId i) = "if" ++ show i
+
+type Id = ([IdElem], Integer)
+
 data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg Integer
              | Load Reg String | Save String Reg Integer | SaveToPtr Reg Reg Integer | Label String
              | Cmp Reg | Jmp String | Je String | Jne String | Jle String | Jl String
@@ -406,56 +415,58 @@ entityToRtl (Func (FuncType retType argTypes) name body) scope = ([Label ('_':na
                                                                         else [Ret name]),
                                                                     (Scope [] ss [] [] [thisFun]))
     where
-        (bodyRtl, (Scope _ ss _ ls _)) = blockToRtl body (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] [thisFun]), scope]) name
+        (bodyRtl, (Scope _ ss _ ls _)) = blockToRtl body (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] [thisFun]), scope]) (funcId name)
         numLocals = toInteger $ length ls
         thisFun = Fun name retType argTypes True numLocals
 
 
-blockToRtl :: Ast -> Scope -> String -> (Rtl, Scope)
+blockToRtl :: Ast -> Scope -> Id -> (Rtl, Scope)
 blockToRtl (Block []) scope _ = ([], emptyScope)
-blockToRtl (Block [x]) scope funName = lineToRtl x scope funName
-blockToRtl (Block (x:xs)) scope funName = (expr ++ block, hideLocals $ joinScopes [scope1, scope2])
+blockToRtl (Block [x]) scope id = lineToRtl x scope id
+blockToRtl (Block (x:xs)) scope id = (expr ++ block, hideLocals $ joinScopes [scope1, scope2])
     where
-        (expr, scope1) = lineToRtl x scope funName
-        (block, scope2) = blockToRtl (Block xs) (joinScopes [scope, scope1]) funName
+        (expr, scope1) = lineToRtl x scope id
+        (block, scope2) = blockToRtl (Block xs) (joinScopes [scope, scope1]) (incId id)
 
 
-lineToRtl :: Ast -> Scope -> String -> (Rtl, Scope)
+lineToRtl :: Ast -> Scope -> Id -> (Rtl, Scope)
 
-lineToRtl (If cond thenBlock elseBlock) scope name
+lineToRtl (If cond thenBlock elseBlock) scope id
     | not $ isEmpty elseBlock = (condRtl ++
-                                 [Cmp condReg, Jne ("then" ++ show condReg)] ++
+                                 [Cmp condReg, Jne ((getIdString newId) ++ "then")] ++
                                  elseBlockRtl ++
-                                 [Jmp ("endif" ++ show condReg),
-                                 Label ("then" ++ show condReg)] ++
+                                 [Jmp ((getIdString newId) ++ "end"),
+                                 Label ((getIdString newId) ++ "then")] ++
                                  thenBlockRtl ++
-                                 [Label ("endif" ++ show condReg)],
+                                 [Label ((getIdString newId) ++ "end")],
                                  joinScopes [thenNewVars, elseNewVars])
-    | otherwise = (condRtl ++ [Cmp condReg, Je ("endif" ++ show condReg)] ++ thenBlockRtl ++ [Label ("endif" ++ show condReg)], thenNewVars)
+    | otherwise = (condRtl ++ [Cmp condReg, Je ((getIdString newId) ++ "end")] ++ thenBlockRtl ++ [Label ((getIdString newId) ++ "end")], thenNewVars)
     where
         (condRtl, condReg, _) = exprToRtl cond 0 scope
-        (thenBlockRtl, thenNewVars) = blockToRtl thenBlock scope name
-        (elseBlockRtl, elseNewVars) = blockToRtl elseBlock scope name
+        (thenBlockRtl, thenNewVars) = blockToRtl thenBlock scope newId
+        (elseBlockRtl, elseNewVars) = blockToRtl elseBlock scope newId
+        newId = addIfId id
 
-lineToRtl (While cond block) scope name = ([Label ("while" ++ show condReg)] ++
+lineToRtl (While cond block) scope id = ([Label ((getIdString newId) ++ "while")] ++
                                          condRtl ++
-                                         [Cmp condReg, Je ("endwhile" ++ show condReg)] ++
+                                         [Cmp condReg, Je ((getIdString newId) ++ "end")] ++
                                          blockRtl ++
-                                         [Jmp ("while" ++ show condReg), Label ("endwhile" ++ show condReg)],
+                                         [Jmp ((getIdString newId) ++ "while"), Label ((getIdString newId) ++ "end")],
                                          newVars)
     where
         (condRtl, condReg, _) = exprToRtl cond 0 scope
-        (blockRtl, newVars) = blockToRtl block scope name
+        (blockRtl, newVars) = blockToRtl block scope newId
+        newId = addLoopId id
 
-lineToRtl (Return Nothing) _ name = ([Ret name], emptyScope)
+lineToRtl (Return Nothing) _ id = ([Ret $ getFuncId id], emptyScope)
 
-lineToRtl (Return (Just expr)) scope name =
+lineToRtl (Return (Just expr)) scope id =
     if canCast retType (fromJust exprType)
-        then (exprRtl ++ [MovReg reg_eax reg, Ret name], emptyScope)
+        then (exprRtl ++ [MovReg reg_eax reg, Ret $ getFuncId id], emptyScope)
         else error $ "Cannot autocast " ++ (show $ fromJust exprType) ++ " to " ++ (show retType)
     where
         (exprRtl, reg, exprType) = exprToRtl expr 0 scope
-        retType = funRetType $ fromJust $ scopeGetFun scope name
+        retType = funRetType $ fromJust $ scopeGetFun scope $ getFuncId id
 
 lineToRtl (VarDecl t n s) _ _ = ([], (if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing True))
 
@@ -591,6 +602,32 @@ endsOnRet (Block []) = False
 endsOnRet (Block b) = case last b of
     (Return _) -> True
     _          -> False
+
+-- ID
+
+funcId :: String -> Id
+funcId n = ([FuncId n], 0)
+
+getFuncId :: Id -> String
+getFuncId id = case (fst id) !! 0 of
+    (FuncId n) -> n
+    _ -> error "Id doesn't start with func"
+
+getLoopId :: Id -> Maybe String
+getLoopId id = if null id' then Nothing else Just $ getIdString (id', 0)
+    where id' = reverse $ dropWhile (\ e -> case e of { LoopId i -> False; _ -> True }) $ reverse $ fst id
+
+addLoopId :: Id -> Id
+addLoopId id = ((fst id) ++ [LoopId $ snd id], 0)
+
+addIfId :: Id -> Id
+addIfId id = ((fst id) ++ [IfId $ snd id], 0)
+
+incId :: Id -> Id
+incId id = (fst id, (snd id) + 1)
+
+getIdString :: Id -> String
+getIdString id = intercalate "." $ map show $ fst id
 
 -- TYPECHECK
 
