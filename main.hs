@@ -2,7 +2,10 @@
  - TODO
  - 
  - Register handling
- - Make loop and if labels unique
+ - Arrays
+ - Void
+ - Break / Continue
+ - Floats
  - 
  -}
 
