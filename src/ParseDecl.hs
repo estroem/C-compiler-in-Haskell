@@ -37,10 +37,16 @@ parseDeclRight (x:xs) start l r
         let (args, r') = parseDeclArgs (x:xs) (r + 1)
             (ret, end) = parseDeclRight (x:xs) start l r'
             in (FuncType ret args, end)
-    | (x:xs) !! r == "[" && (x:xs) !! (r + 1) == "]" =
-        let (t, i) = parseDeclRight (x:xs) start l (r + 2)
-            in (ArrayType t 0, i)
+    | (x:xs) !! r == "[" =
+        let (arrSize, r') = parseDeclArr (x:xs) (r + 1)
+            (arrType, end) = parseDeclRight (x:xs) start l r'
+            in (ArrayType arrType arrSize, end)
     | otherwise = parseDeclLeft (x:xs) start l (r + 1)
+
+parseDeclArr :: [String] -> Int -> (Integer, Int)
+parseDeclArr (x:xs) i
+    | (x:xs) !! i == "]" = (0, i + 1)
+    | all isDigit $ (x:xs) !! i = (read $ (x:xs) !! i, i + 2)
 
 parseDeclArgs :: [String] -> Int -> ([(Type, String)], Int)
 parseDeclArgs (x:xs) i
