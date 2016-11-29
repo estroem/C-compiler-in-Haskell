@@ -67,6 +67,7 @@ addType (PrimType _) _ = error "Cannot add to primitive type"
 addType EmptyType b = b
 addType (PtrType a) b = (PtrType (addType a b))
 addType (FuncType a c) b = (FuncType (addType a b) c)
+addType (ArrayType a i) b = (ArrayType (addType a b) i)
 
 getMod :: [String] -> (Maybe String, [String])
 getMod (x:xs)
