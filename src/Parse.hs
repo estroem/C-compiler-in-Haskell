@@ -6,6 +6,7 @@ import Data.List
 
 import Type
 import Tokenize
+import ParseDecl
 
 data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | VarDecl Type String Bool
          | If Ast Ast Ast | Call Ast [Ast] | Init Type String Ast
@@ -59,47 +60,6 @@ parseTopLvlLine (x:xs) =
     where
         (decl, name, rest) = parseDecl (x:xs)
         (expr, exprRest) = parseExpr $ drop 1 rest
-
-parseDecl :: [String] -> (Type, String, [String])
-parseDecl (x:xs) = (addType a (PrimType x), b, c)
-    where (a, b, c) = parseDeclReq xs
-
-parseDeclReq :: [String] -> (Type, String, [String])
-parseDeclReq ("(":xs) = 
-    if (head afterDef) == ")"
-        then if (afterDef !! 1) == "("
-            then (addType def (FuncType EmptyType args), name, afterArgs)
-            else (def, name, tail afterDef)
-        else error $ "Unexpected " ++ (head afterDef) ++ ", exptected )"
-    where
-        (def, name, afterDef) = parseDeclReq xs
-        (args, afterArgs) = parseFuncArgs $ drop 2 afterDef
-
-parseDeclReq (")":xs) = (EmptyType, "", ")":xs)
-parseDeclReq ("*":xs) = (addType a (PtrType EmptyType), b, c)
-    where
-        (a, b, c) = parseDeclReq xs
-
-parseDeclReq (x:xs) =
-    if (head xs) == "("
-        then ((FuncType EmptyType args), x, rest)
-        else if isAlpha $ head x then (EmptyType, x, xs) else error $ "Illegal variable \"" ++ x ++ "\". Variables must start with letter"
-    where
-        (args, rest) = parseFuncArgs $ tail xs
-
-addType :: Type -> Type -> Type
-addType (PrimType a) b = error ""
-addType EmptyType b = b
-addType (PtrType a) b = (PtrType (addType a b))
-addType (FuncType a c) b = (FuncType (addType a b) c)
-
-parseFuncArgs :: [String] -> ([(Type, String)], [String])
-parseFuncArgs (")":xs) = ([], xs)
-parseFuncArgs (",":xs) = parseFuncArgs xs
-parseFuncArgs (x:xs) = ((a, b) : argList, rest)
-    where
-        (a, b, c) = parseDecl (x:xs)
-        (argList, rest) = parseFuncArgs c
     
 parseBlock :: [String] -> (Ast, [String])
 parseBlock [] = (Block [], [])
