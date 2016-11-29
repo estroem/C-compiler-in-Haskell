@@ -86,6 +86,3 @@ parseLineOrBlock (";":xs) = (Block [], xs)
 parseLineOrBlock ("{":xs) = parseBlock xs
 parseLineOrBlock (x:xs) = (Block [fst line], snd line)
     where line = parseLine (x:xs)
-
-getTypeFromSym :: String -> Type
-getTypeFromSym sym = (PrimType sym) --fromJust $ find (\ n -> name n == sym) types
