@@ -1,4 +1,4 @@
-module Type ( Type (..), getIntType, canCast, getType ) where
+module Type ( Type (..), getIntType, canCast, getType, getTypeSize ) where
 
 import Data.Maybe
 import Data.List
@@ -45,6 +45,7 @@ getType sym l r = case sym of
     "=" -> Just l
     "$" -> case l of
         (PtrType t) -> Just t
+        (ArrayType t _) -> Just t
         _ -> error "Can not dereference non-pointer type"
     "&" -> Just $ PtrType l
     "!=" -> Just $ PrimType "int"
@@ -52,6 +53,8 @@ getType sym l r = case sym of
 getMulType :: Type -> Type -> Maybe Type
 getMulType (PtrType _) _ = Nothing
 getMulType _ (PtrType _) = Nothing
+getMulType (ArrayType _ _) _ = Nothing
+getMulType _ (ArrayType _ _) = Nothing
 getMulType l r = getAddType l r
 
 getAddType :: Type -> Type -> Maybe Type
@@ -66,6 +69,12 @@ getAddType l@(PtrType _) (PrimType r)
     | typeIsFloat r = Nothing
     | otherwise = Just l
 getAddType (PrimType l) r@(PtrType _)
+    | typeIsFloat l = Nothing
+    | otherwise = Just r
+getAddType l@(ArrayType _ _) (PrimType r)
+    | typeIsFloat r = Nothing
+    | otherwise = Just l
+getAddType (PrimType l) r@(ArrayType _ _)
     | typeIsFloat l = Nothing
     | otherwise = Just r
 getAddType _ _ = Nothing
@@ -90,3 +99,11 @@ showType (FuncType ret args) str =
                         map ((flip showType) "") $ fst $ unzip args) ++ ")"
 showType (ArrayType t i) str = showType t $ str ++ "[" ++ show i ++ "]"
 showType EmptyType _ = "EmptyType"
+
+getTypeSize :: Type -> Integer
+getTypeSize (ArrayType _ i) = i * 4
+getTypeSize (PtrType _) = 4
+getTypeSize (PrimType "int") = 4
+getTypeSize (PrimType "short") = 2
+getTypeSize (PrimType "byte") = 1
+getTypeSize (PrimType "char") = 1

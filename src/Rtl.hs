@@ -52,8 +52,8 @@ entityToRtl (Init t n v) _ = ([], scopeAddGlo emptyScope $ Var n t (getValueFrom
 entityToRtl (FunDecl (FuncType retType argTypes) name) scope = ([], scopeAddFun emptyScope (Fun name retType argTypes False 0))
 
 entityToRtl (Func (FuncType retType argTypes) name body) scope = ([Label ('_':name), Push reg_ebp, MovReg reg_ebp reg_esp] ++
-                                                                    (if numLocals > 0
-                                                                        then [SubConst reg_esp (numLocals * 4)]
+                                                                    (if localSize > 0
+                                                                        then [SubConst reg_esp localSize]
                                                                         else []) ++
                                                                     bodyRtl ++
                                                                     (if endsOnRet body
@@ -62,8 +62,8 @@ entityToRtl (Func (FuncType retType argTypes) name body) scope = ([Label ('_':na
                                                                     (Scope [] ss [] [] [thisFun]))
     where
         (bodyRtl, (Scope _ ss _ ls _)) = blockToRtl body (joinScopes [(Scope [] [] (argTypesToVars argTypes) [] [thisFun]), scope]) (funcId name)
-        numLocals = toInteger $ length ls
-        thisFun = Fun name retType argTypes True numLocals
+        localSize = getTotalSize ls
+        thisFun = Fun name retType argTypes True localSize
 
 
 blockToRtl :: Ast -> Scope -> Id -> (Rtl, Scope)
@@ -127,10 +127,14 @@ exprToRtl (Literal l) nextReg _ = ([LoadLit (nextReg + 1) l], nextReg + 1, Just 
 
 exprToRtl (Name name) nextReg scope =
     if scopeHasVar scope name
-        then let i = getOffset scope name in
-            if isJust i
-                then ([LoadLoc (nextReg + 1) (fromJust i)], nextReg + 1, varTyp)
-                else ([Load (nextReg + 1) name], nextReg + 1, varTyp)
+        then let i = getOffset scope name
+            in case fromJust varTyp of
+                (ArrayType t _) -> if isJust i
+                    then ([AddrLoc (nextReg + 1) (fromJust i)], nextReg + 1, varTyp)
+                    else ([Addr (nextReg + 1) name], nextReg + 1, varTyp)
+                _ -> if isJust i
+                    then ([LoadLoc (nextReg + 1) (fromJust i)], nextReg + 1, varTyp)
+                    else ([Load (nextReg + 1) name], nextReg + 1, varTyp)
         else if scopeHasFun scope name
             then ([Load (nextReg + 1) name], nextReg + 1, funTyp)
             else error $ "Variable not in scope: " ++ name
@@ -224,12 +228,15 @@ handleAssign (Name name) expr nextReg scope =
         lType = varType $ fromJust $ scopeGetVar scope name
 
 handleAssign (App op [addrExpr]) expr nextReg scope =
-    if canCast (fromJust lType) (fromJust rType)
+    if canCast (fromJust $ getType "$" (fromJust lType) undefined) (fromJust rType)
         then (addrRtl ++ exprRtl ++ [SaveToPtr addrReg exprReg 4], exprReg)
         else error $ "Cannot autocast " ++ (show $ fromJust rType) ++ " to " ++ (show $ fromJust lType)
     where
         (addrRtl, addrReg, lType) = exprToRtl addrExpr nextReg scope
         (exprRtl, exprReg, rType) = exprToRtl expr addrReg scope
+
+handleAssign (ArrayDeref addr offset) expr nextReg scope =
+    handleAssign (App (getOpFromSym "$") [App (getOpFromSym "+") [addr, offset]]) expr nextReg scope
 
 handleAddr :: Ast -> Reg -> Scope -> (Rtl, Reg)
 handleAddr (Name name) nextReg scope =

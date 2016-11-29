@@ -26,6 +26,7 @@ toAsmExtern :: [Fun] -> Asm
 toAsmExtern funs = map (\ f -> "extern _" ++ funName f) (filter (\f -> (not $ funIsDef f) && (not $ any (\f2 -> funName f == funName f2 && funIsDef f2) funs)) funs)
 
 toAsmDataLine :: Var -> AsmLine
+toAsmDataLine (Var n (ArrayType t i) v _) = n ++ ": resw " ++ show i
 toAsmDataLine (Var n t v _) = n ++ ": " ++ (getSizeWordData $ getSizeInt t) ++ " " ++
     case v of
         Nothing -> "0"
@@ -76,7 +77,7 @@ toAsmLine (Addr reg name) _ _        = (["mov " ++ getReg reg ++ ", " ++ name], 
 toAsmLine (AddrLoc reg offset) _ _   = (["lea " ++ getReg reg ++ ", [" ++ getReg reg_ebp ++ (if offset > 0 then "+" else "") ++ show offset ++ "]"], [])
 
 retNumLocals :: Scope -> RtlLine -> RtlLine
-retNumLocals s (Ret n) = Ret $ show $ (funcGetNumLoc s n) * 4
+retNumLocals s (Ret n) = Ret $ show $ (funcGetNumLoc s n)
 retNumLocals _ a = a
 
 litsGetSize :: [Lit] -> Integer
@@ -95,6 +96,7 @@ getReg 3 = "ecx"
 getReg 4 = "edx"
 
 getSizeInt :: Type -> Integer
+getSizeInt (ArrayType _ i) = i * 4
 getSizeInt (PtrType _) = 4
 getSizeInt (PrimType "int") = 4
 getSizeInt (PrimType "short") = 2
