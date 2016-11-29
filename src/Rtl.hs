@@ -6,6 +6,7 @@ import Parse
 import Scope
 import Type
 import Id
+import Op
 
 type Lit = String
 

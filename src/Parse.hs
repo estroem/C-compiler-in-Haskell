@@ -1,4 +1,4 @@
-module Parse ( Ast (..), Op (..), parse, getOpFromSym ) where
+module Parse ( Ast (..), Op (..), parse ) where
 
 import Data.Char
 import Data.Maybe
@@ -6,37 +6,13 @@ import Data.List
 
 import Type
 import Tokenize
+import Ast
 import ParseDecl
-
-data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | VarDecl Type String Bool
-         | If Ast Ast Ast | Call Ast [Ast] | Init Type String Ast
-         | Func Type String Ast | File [Ast] | FunDecl Type String | Literal String | Return (Maybe Ast)
-         | While Ast Ast | ArrayDeref Ast Ast
-    deriving (Show)
-
-data Op = Op
-    { symbol :: String
-    , numArgs :: Integer
-    , precedence :: Integer
-    , assoc :: Integer
-    }
-
-instance Show Op where
-    show (Op {symbol=s}) = show s
-
-data ExprElem = Operator Op | Ast Ast
-    deriving (Show)
-
-
-operators = [(Op "+" 2 1 0), (Op "-" 2 1 0), (Op "*" 1 2 0), (Op "/" 2 2 0), (Op "++" 1 3 0), (Op "=" 2 0 0), (Op "$" 1 4 0),{- (Op "==" 2 0 0),-} (Op "!=" 2 0 0), (Op "&" 1 4 0)]
+import ParseExpr
 
 
 parse :: [String] -> Ast
 parse = fst . parseFile
-
-addAst :: Ast -> Ast -> Ast
-addAst (Block list) ast = Block (ast:list)
-addAst (File list) ast = File (ast:list)
 
 parseFile :: [String] -> (Ast, [String])
 parseFile [] = (File [], [])
@@ -105,95 +81,11 @@ parseWhile (x:xs) = (While (fst cond) (fst block), snd block)
         cond = parseExpr (x:xs)
         block = parseLineOrBlock $ drop 1 $ snd cond
 
-parseCallArgs :: [String] -> ([Ast], [String])
-parseCallArgs ("(":")":xs) = ([], xs)
-parseCallArgs (")":xs) = ([], xs)
-parseCallArgs (x:xs) = (arg : nextArgs, rest)
-    where
-        (arg, nextArgsString) = parseExpr xs
-        (nextArgs, rest) = parseCallArgs nextArgsString
-
-parseExpr :: [String] -> (Ast, [String])
-parseExpr [] = (undefined, [])
-parseExpr (x:xs) = (prefixToTree $ infixToPrefix $ fst exprList, snd exprList)
-    where
-        exprList = getExprList (x:xs)
-
 parseLineOrBlock :: [String] -> (Ast, [String])
 parseLineOrBlock (";":xs) = (Block [], xs)
 parseLineOrBlock ("{":xs) = parseBlock xs
 parseLineOrBlock (x:xs) = (Block [fst line], snd line)
     where line = parseLine (x:xs)
-
-parseSingleExpr :: [String] -> (Ast, [String])
-parseSingleExpr (x:xs) =
-    let expr = if x == "("
-        then parseExpr xs
-        else if all isDigit x
-            then (Number $ read x, (x:xs))
-            else if all isAlpha x
-                then (Name x, (x:xs))
-                else if (head x) == '"'
-                    then (Literal $ tail x, (x:xs))
-                    else error $ "Unexpected \"" ++ x ++ "\""
-        in
-            if (snd expr) !! 1 == "("
-                then
-                    let args = (parseCallArgs $ tail $ snd expr)
-                        in (Call (fst expr) (fst args), snd args)
-                else if (snd expr) !! 1 == "["
-                    then
-                        let offset = parseExpr $ drop 2 (snd expr)
-                            in (ArrayDeref (fst expr) (fst offset), drop 1 $ snd offset)
-                    else (fst expr, tail $ snd expr)
-
-getExprList :: [String] -> ([ExprElem], [String])
-getExprList [] = ([], []) -- error "Unexpected end of expression"
-getExprList (x:xs)
-    | x == ")" || x == "," || x == ";" || x == "]" = ([], (x:xs))
-    | elem x opShortlist = let exprList = getExprList xs in ((Operator (getOpFromSym x)) : fst exprList, snd exprList)
-    | otherwise =  let exprList = getExprList (snd expr) in ((Ast (fst expr)) : fst exprList, snd exprList)
-        where
-            expr = parseSingleExpr (x:xs)
-
-prefixToTree :: [ExprElem] -> Ast
-prefixToTree list = fst $ prefixToTreeReq list
-
-prefixToTreeReq :: [ExprElem] -> (Ast, [ExprElem])
-prefixToTreeReq ((Ast x):xs) = (x, xs)
-prefixToTreeReq ((Operator op):xs) =
-    if numArgs op == 2
-        then (App op ((fst arg2):(fst arg1):[]), snd arg2)
-        else if numArgs op == 1
-            then (App op [fst arg1], snd arg1)
-            else error "Illegal number of args"
-    where
-        arg1 = prefixToTreeReq xs
-        arg2 = prefixToTreeReq $ snd arg1
-
-infixToPrefix :: [ExprElem] -> [ExprElem]
-infixToPrefix list = reverse opList ++ valueList
-    where
-        (opList, valueList) = infixToPostfixReq list [] []
-
-infixToPostfixReq :: [ExprElem] -> [ExprElem] -> [ExprElem] -> ([ExprElem], [ExprElem])
-infixToPostfixReq [] a b = (a, b)
-infixToPostfixReq ((Ast x):xs) opList valueList = infixToPostfixReq xs opList ((Ast x):valueList)
-infixToPostfixReq ((op@(Operator {})):xs) opList valueList = infixToPostfixReq xs (op:opList2) valueList2
-    where
-        (opList2, valueList2) = popOperators op opList valueList
-
-popOperators :: ExprElem -> [ExprElem] -> [ExprElem] -> ([ExprElem], [ExprElem])
-popOperators (Operator op) opList valueList =
-    if not (null opList) && (precedence op) < (precedence $ getOpFromExprElem $ head opList)
-        then popOperators (Operator op) (tail opList) ((head opList) : valueList)
-        else (opList, valueList)
-
-getOpFromExprElem :: ExprElem -> Op
-getOpFromExprElem (Operator op) = op
-
-getOpFromSym :: String -> Op
-getOpFromSym sym = fromJust $ find (\ op -> symbol op == sym) operators
 
 getTypeFromSym :: String -> Type
 getTypeFromSym sym = (PrimType sym) --fromJust $ find (\ n -> name n == sym) types
