@@ -51,7 +51,7 @@ parseDeclArr (x:xs) i
 parseDeclArgs :: [String] -> Int -> ([(Type, String)], Int)
 parseDeclArgs (x:xs) i
     | (x:xs) !! i == ")" = ([], i + 1)
-    | (x:xs) !! i' == "," = let (ts, i'') = parseDeclArgs (x:xs) i'
+    | (x:xs) !! i' == "," = let (ts, i'') = parseDeclArgs (x:xs) (i' + 1)
                                 in ((t, n):ts, i'')
     | otherwise = ([(t, n)], i' + 1)
     where
