@@ -14,7 +14,7 @@ data Var = Var
     , varType :: Type
     , varValue :: Maybe Value
     , varIsVis :: Bool
-    } deriving (Show)
+    } deriving (Show, Eq)
 
 data Fun = Fun
     { funName :: String
@@ -25,7 +25,7 @@ data Fun = Fun
     } deriving (Show)
 
 data Value = Integer Integer | Float Float | String String
-    deriving (Show)
+    deriving (Show, Eq)
 
 --           Scope globals statics locals functions
 data Scope = Scope [Var] [Var] [Var] [Var] [Fun]
@@ -51,13 +51,22 @@ scopeAddFun (Scope gs ss ps ls fs) f = (Scope gs ss ps ls (f:fs))
 
 getOffset :: Scope -> String -> Maybe Integer
 getOffset (Scope _ _ ps ls _) n =
-    let i = findIndex (\ v -> (varName v) == n) ls in
-        if isJust i
-            then Just (toInteger $ (fromJust i + 1) * (-4))
-            else let j = findIndex (\ v -> (varName v) == n) ps in
-                if isJust j
-                    then Just (toInteger $ (fromJust j + 2) * 4)
+    let a = find (\ v -> varName v == n) ls
+        in if isJust a
+            then Just $ ((getLocalAddr (fromJust a) ls)
+                    + roundUpTo 4 (getTypeSize $ varType $ fromJust a)) * (-1)
+            else let b = find (\ v -> varName v == n) ps
+                in if isJust b
+                    then Just $ (getLocalAddr (fromJust b) ps) + 8
                     else Nothing
+
+getLocalAddr :: Var -> [Var] -> Integer
+getLocalAddr v s =
+    (foldl (\ t v -> t + roundUpTo 4 (getTypeSize $ varType v)) 0
+        $ takeWhile (/=v) s)
+
+roundUpTo :: Integer -> Integer -> Integer
+roundUpTo y x = x + y - ((x - 1) `mod` y) - 1
 
 scopeHasVar :: Scope -> String -> Bool
 scopeHasVar (Scope gs ss ps ls fs) name = any (\ v -> (varName v) == name && varIsVis v) (gs ++ ss ++ ps ++ ls)

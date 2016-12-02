@@ -2,7 +2,6 @@
  - TODO
  - 
  - Register handling
- - Arrays
  - Void
  - Break / Continue
  - Floats

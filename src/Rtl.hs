@@ -130,7 +130,9 @@ exprToRtl (Name name) nextReg scope =
         then let i = getOffset scope name
             in case fromJust varTyp of
                 (ArrayType t _) -> if isJust i
-                    then ([AddrLoc (nextReg + 1) (fromJust i)], nextReg + 1, varTyp)
+                    then if fromJust i > 0
+                        then ([LoadLoc (nextReg + 1) (fromJust i)], nextReg + 1, varTyp)
+                        else ([AddrLoc (nextReg + 1) (fromJust i)], nextReg + 1, varTyp)
                     else ([Addr (nextReg + 1) name], nextReg + 1, varTyp)
                 _ -> if isJust i
                     then ([LoadLoc (nextReg + 1) (fromJust i)], nextReg + 1, varTyp)
@@ -152,7 +154,7 @@ exprToRtl (App op exprList) nextReg scope =
         (expr2, reg2, lType) = exprToRtl (exprList !! 0) reg1 scope
         (expr, reg, typ) = exprToRtl (head exprList) nextReg scope
         a = case symbol op of
-            "+" -> (expr1 ++ expr2 ++ [Add reg2 reg1], reg2)
+            "+" -> handleAdd exprList nextReg scope
             "-" -> (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
             "*" -> (expr1 ++ expr2 ++ [Mul reg2 reg1], reg2)
             "/" -> (expr1 ++ expr2 ++ [Div reg2 reg1], reg2)
@@ -249,6 +251,31 @@ handleAddr (Name name) nextReg scope =
                 else error $ "Undefined variable \"" ++ name ++ "\""
     where offset = getOffset scope name
 handleAddr _ _ _ = error "Can only get address of lvalue"
+
+handleAdd :: [Ast] -> Reg -> Scope -> (Rtl, Reg)
+handleAdd exprList nextReg scope =
+    (expr1 ++ expr2 ++
+        (let t = getPtrType $ fromJust lType
+            in if isJust t
+                then [Mov (reg2 + 1) (getTypeSize $ fromJust t),
+                      Mul reg1 (reg2 + 1)]
+                else []
+        ) ++
+        (let t = getPtrType $ fromJust rType 
+            in if isJust t
+                then [Mov (reg2 + 1) (getTypeSize $ fromJust t),
+                      Mul reg2 (reg2 + 1)]
+                else []
+        ) ++
+        [Add reg2 reg1, MovReg (reg2 + 1) reg2], reg2 + 1)
+    where
+        (expr1, reg1, rType) = exprToRtl (exprList !! 1) nextReg scope
+        (expr2, reg2, lType) = exprToRtl (exprList !! 0) reg1 scope
+
+getPtrType :: Type -> Maybe Type
+getPtrType (PtrType t) = Just t
+getPtrType (ArrayType t _) = Just t
+getPtrType _ = Nothing
 
 isEmpty :: Ast -> Bool
 isEmpty (Block list) = null list

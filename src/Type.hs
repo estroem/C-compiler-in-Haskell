@@ -101,7 +101,7 @@ showType (ArrayType t i) str = showType t $ str ++ "[" ++ show i ++ "]"
 showType EmptyType _ = "EmptyType"
 
 getTypeSize :: Type -> Integer
-getTypeSize (ArrayType _ i) = i * 4
+getTypeSize (ArrayType t i) = i * getTypeSize t
 getTypeSize (PtrType _) = 4
 getTypeSize (PrimType "int") = 4
 getTypeSize (PrimType "short") = 2

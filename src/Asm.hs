@@ -46,7 +46,7 @@ toAsmLines rtl = toAsmLinesLoop rtl 0 [] [] where
 toAsmLine :: RtlLine -> Integer -> [Lit] -> ([AsmLine], [Lit])
 toAsmLine (Add reg1 reg2) _ _        = (["add " ++ getReg reg1 ++ ", " ++ getReg reg2], [])
 toAsmLine (Sub reg1 reg2) _ _        = (["sub " ++ getReg reg1 ++ ", " ++ getReg reg2], [])
-toAsmLine (Mul reg1 reg2) _ _        = (["mul " ++ getReg reg1 ++ ", " ++ getReg reg2], [])
+toAsmLine (Mul reg1 reg2) _ _        = (["imul " ++ getReg reg1 ++ ", " ++ getReg reg2], [])
 toAsmLine (Div reg1 reg2) _ _        = (["div " ++ getReg reg1 ++ ", " ++ getReg reg2], [])
 toAsmLine (Mov reg i) _ _            = (["mov " ++ getReg reg  ++ ", " ++ show i], [])
 toAsmLine (Load reg name) _ _        = (["mov " ++ getReg reg  ++ ", [" ++ name ++ "]"], [])
