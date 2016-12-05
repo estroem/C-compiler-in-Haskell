@@ -27,7 +27,7 @@ toAsmExtern funs = map (\ f -> "extern _" ++ funName f) (filter (\f -> (not $ fu
 
 toAsmDataLine :: Var -> AsmLine
 toAsmDataLine (Var n (ArrayType t i) v _) = n ++ ": resw " ++ show i
-toAsmDataLine (Var n t v _) = n ++ ": " ++ (getSizeWordData $ getSizeInt t) ++ " " ++
+toAsmDataLine (Var n t v _) = n ++ ": " ++ (getSizeWordData $ getTypeSize t) ++ " " ++
     case v of
         Nothing -> "0"
         Just (Integer x) -> show x
@@ -94,14 +94,6 @@ getReg 1 = "eax"
 getReg 2 = "ebx"
 getReg 3 = "ecx"
 getReg 4 = "edx"
-
-getSizeInt :: Type -> Integer
-getSizeInt (ArrayType _ i) = i * 4
-getSizeInt (PtrType _) = 4
-getSizeInt (PrimType "int") = 4
-getSizeInt (PrimType "short") = 2
-getSizeInt (PrimType "byte") = 1
-getSizeInt (PrimType "char") = 1
 
 getSizeWordData :: Integer -> String
 getSizeWordData 1 = "db"
