@@ -17,7 +17,7 @@ data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg I
              | FuncStart String | FuncEnd String | Ret String | Push Reg | LoadLoc Reg Integer
              | SaveLoc Integer Reg | Pop Reg | AddConst Reg Integer | SubConst Reg Integer
              | MulConst Reg Integer | DivConst Reg Integer | LoadLit Reg Lit | MovReg Reg Reg
-             | Addr Reg String | AddrLoc Reg Integer
+             | Addr Reg String | AddrLoc Reg Integer | Test Reg | Setz Reg | AndConst Reg Integer
     deriving (Show)
 type Reg = Integer
 
@@ -181,6 +181,7 @@ exprToRtl (App op exprList) nextReg scope =
         --  "==" -> (expr1 ++ expr2 ++ [Cmp reg2 reg1], reg2)
             "!=" -> (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
             "&" -> handleAddr (head exprList) nextReg scope
+            "!" -> (expr ++ [Test reg, Setz reg, AndConst reg 1], reg)
 
 exprToRtl (Call (Name name) args) nextReg scope = ((if nextReg > 0 then [Push reg_eax] else []) ++ 
                                                argsRtl ++

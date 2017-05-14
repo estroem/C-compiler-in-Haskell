@@ -2,7 +2,7 @@ module Tokenize ( tokenize, opShortlist, typeShortlist ) where
 
 import Data.Char
 
-opShortlist = ["+", "-", "*", "/", "++", "=", "$", "==", "!=", "&"]
+opShortlist = ["+", "-", "*", "/", "++", "=", "$", "==", "!=", "!", "&"]
 
 typeShortlist = ["int", "short", "byte", "char"]
 

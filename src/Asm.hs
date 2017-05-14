@@ -75,6 +75,9 @@ toAsmLine (LoadLit reg l) _ ls       = (["mov " ++ getReg reg ++ ", ?strings + "
 toAsmLine (MovReg reg1 reg2) _ _     = (["mov " ++ getReg reg1 ++ ", " ++ getReg reg2], [])
 toAsmLine (Addr reg name) _ _        = (["mov " ++ getReg reg ++ ", " ++ name], [])
 toAsmLine (AddrLoc reg offset) _ _   = (["lea " ++ getReg reg ++ ", [" ++ getReg reg_ebp ++ (if offset > 0 then "+" else "") ++ show offset ++ "]"], [])
+toAsmLine (Test reg) _ _             = (["test " ++ getReg reg ++ ", " ++ getReg reg], [])
+toAsmLine (Setz reg) _ _             = (["setz " ++ (getReg reg) !! 1 : "l"], [])
+toAsmLine (AndConst reg i) _ _       = (["and " ++ getReg reg ++ ", " ++ show i], [])
 
 retNumLocals :: Scope -> RtlLine -> RtlLine
 retNumLocals s (Ret n) = Ret $ show $ (funcGetNumLoc s n)
