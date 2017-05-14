@@ -145,6 +145,26 @@ exprToRtl (Name name) nextReg scope =
         funTyp = Just $ FuncType (funRetType fun) (funArgs fun)
         fun = fromJust $ scopeGetFun scope name
 
+exprToRtl (App op@(Op {symbol="+"}) [expr1, expr2]) nextReg scope =
+    (expr2' ++ expr1' ++
+        fixPtrOffset reg1 reg2 (fromJust lType) ++
+        fixPtrOffset reg2 reg2 (fromJust rType) ++
+        [Add reg2 reg1],
+    reg2, getType (symbol op) (fromJust lType) (fromJust rType))
+    where
+        (expr2', reg1, rType) = exprToRtl expr2 nextReg scope
+        (expr1', reg2, lType) = exprToRtl expr1 reg1 scope
+
+exprToRtl (App op@(Op {symbol="-"}) [expr1, expr2]) nextReg scope =
+    (expr2' ++ expr1' ++
+        fixPtrOffset reg1 reg2 (fromJust lType) ++
+        fixPtrOffset reg2 reg2 (fromJust rType) ++
+        [Sub reg2 reg1],
+    reg2, getType (symbol op) (fromJust lType) (fromJust rType))
+    where
+        (expr2', reg1, rType) = exprToRtl expr2 nextReg scope
+        (expr1', reg2, lType) = exprToRtl expr1 reg1 scope
+        
 exprToRtl (App op exprList) nextReg scope =
     (fst a, snd a, if (numArgs op) == 1
                        then getType (symbol op) (fromJust typ) undefined
@@ -154,8 +174,6 @@ exprToRtl (App op exprList) nextReg scope =
         (expr2, reg2, lType) = exprToRtl (exprList !! 0) reg1 scope
         (expr, reg, typ) = exprToRtl (head exprList) nextReg scope
         a = case symbol op of
-            "+" -> handleAdd exprList nextReg scope
-            "-" -> (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
             "*" -> (expr1 ++ expr2 ++ [Mul reg2 reg1], reg2)
             "/" -> (expr1 ++ expr2 ++ [Div reg2 reg1], reg2)
             "=" -> handleAssign (head exprList) (last exprList) nextReg scope
@@ -192,6 +210,14 @@ exprToRtl (Call addr args) nextReg scope = ((if nextReg > 0 then [Push reg_eax] 
 
 exprToRtl (ArrayDeref addr offset) nextReg scope =
     exprToRtl (App (getOpFromSym "$") [App (getOpFromSym "+") [addr, offset]]) nextReg scope
+
+fixPtrOffset :: Reg -> Reg -> Type -> Rtl
+fixPtrOffset reg nextReg typ =
+    maybe [] (\ t -> [Mov (nextReg + 1) (getTypeSize t),
+            Mul reg (nextReg + 1)])
+        $ getPtrType typ
+
+--simpleOp :: Ast -> Reg -> Scope -> (Rtl, Reg, Maybe Type)
 
 getValueFromAst :: Ast -> Maybe Value
 getValueFromAst (Number x) = Just $ Integer x
@@ -251,26 +277,6 @@ handleAddr (Name name) nextReg scope =
                 else error $ "Undefined variable \"" ++ name ++ "\""
     where offset = getOffset scope name
 handleAddr _ _ _ = error "Can only get address of lvalue"
-
-handleAdd :: [Ast] -> Reg -> Scope -> (Rtl, Reg)
-handleAdd exprList nextReg scope =
-    (expr1 ++ expr2 ++
-        (let t = getPtrType $ fromJust lType
-            in if isJust t
-                then [Mov (reg2 + 1) (getTypeSize $ fromJust t),
-                      Mul reg1 (reg2 + 1)]
-                else []
-        ) ++
-        (let t = getPtrType $ fromJust rType 
-            in if isJust t
-                then [Mov (reg2 + 1) (getTypeSize $ fromJust t),
-                      Mul reg2 (reg2 + 1)]
-                else []
-        ) ++
-        [Add reg2 reg1, MovReg (reg2 + 1) reg2], reg2 + 1)
-    where
-        (expr1, reg1, rType) = exprToRtl (exprList !! 1) nextReg scope
-        (expr2, reg2, lType) = exprToRtl (exprList !! 0) reg1 scope
 
 getPtrType :: Type -> Maybe Type
 getPtrType (PtrType t) = Just t
