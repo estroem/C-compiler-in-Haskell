@@ -1,2 +1,7 @@
-Compile with:
-ghc 
+Operators implemented are + - * / & == != and !
+Also you can use $ as the deref operator.
+
+Put C code in run.c and run "make run.exe" to compile test code.
+
+Please note that the gcc part of this process is only for linking
+purposes, no actual C compilation happens there.
