@@ -1,0 +1,6 @@
+obj/*
+*.exe
+*.obj
+*.c
+*.asm
+*.sh
