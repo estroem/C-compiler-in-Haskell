@@ -13,16 +13,15 @@ parseDecl (x:xs) =
 
 parseDecl' :: [String] -> Int -> (Type, String, Int)
 parseDecl' (x:xs) s =
-    if isJust p
-        then let (t, i') = parseDeclRight (x:xs) i l r
+    if isPrimitive $ (x:xs) !! s
+        then let (t, i) = parseDeclRight (x:xs) (s + 1) l r
                  n = if l == r - 2
                     then (x:xs) !! (l + 1)
                     else ""
-            in (addType t $ PrimType $ fromJust p, n, i' - 1)
+            in (addType t $ PrimType ((x:xs) !! s), n, i - 1)
         else error "No type found"
     where
-        (p, i) = getPrim (x:xs) s
-        (l, r) = findDeclStart (x:xs) i
+        (l, r) = findDeclStart (x:xs) (s + 1)
 
 parseDeclLeft :: [String] -> Int -> Int -> Int -> (Type, Int)
 parseDeclLeft (x:xs) start l r
@@ -80,14 +79,6 @@ getMod (x:xs)
     | x == "static" || x == "extern" = (Just x, xs)
     | otherwise = (Nothing, (x:xs))
 
-prims = [("int", 4), ("short", 2), ("char", 1), ("float", 4), ("double", 8)]
-
-getPrim :: [String] -> Int -> (Maybe String, Int)
-getPrim str i = 
-    if elem (str !! i) $ fst $ unzip prims
-        then (Just (str !! i), i + 1)
-        else (Nothing, i)
- 
 isClosingSym :: String -> Bool
 isClosingSym = (flip elem) [";", ",", ")", "]"]
 
