@@ -1,4 +1,4 @@
-all: compiler.exe
+.DEFAULT_GOAL := compiler.exe
 
 clean:
 	rm compiler.exe obj/* run.exe run.asm run.obj
