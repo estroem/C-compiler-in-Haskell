@@ -50,6 +50,7 @@ parseLine :: [String] -> (Ast, [String])
 parseLine [] = (undefined, [])
 parseLine ("if":"(":xs) = parseIf xs
 parseLine ("while":"(":xs) = parseWhile xs
+parseLine ("for":"(":xs) = parseFor xs
 parseLine ("return":r)
     | (head r) == ";" = (Return Nothing, tail r)
     | otherwise = (Return $ Just expr, drop 1 r2)
@@ -86,6 +87,14 @@ parseWhile (x:xs) = (While (fst cond) (fst block), snd block)
     where
         cond = parseExpr (x:xs)
         block = parseLineOrBlock $ drop 1 $ snd cond
+
+parseFor :: [String] -> (Ast, [String])
+parseFor (x:xs) = (For init cond inc block, r''')
+    where
+        (init, r) = parseStatement (x:xs)
+        (cond, r') = parseExpr $ drop 1 r
+        (inc, r'') = parseExpr $ drop 1 r'
+        (block, r''') = parseLineOrBlock $ drop 1 r''
 
 parseLineOrBlock :: [String] -> (Ast, [String])
 parseLineOrBlock (";":xs) = (Block [], xs)

@@ -6,7 +6,7 @@ import Op
 data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | VarDecl Type String Bool
          | If Ast Ast Ast | Call Ast [Ast] | Init Type String Ast
          | Func Type String Ast | File [Ast] | FunDecl Type String | Literal String | Return (Maybe Ast)
-         | While Ast Ast | ArrayDeref Ast Ast
+         | While Ast Ast | ArrayDeref Ast Ast | For Ast Ast Ast Ast
     deriving (Show)
 
 addAst :: Ast -> Ast -> Ast

@@ -104,6 +104,22 @@ lineToRtl (While cond block) scope id = ([Label ((getIdString newId) ++ "while")
         (blockRtl, newVars) = blockToRtl block scope newId
         newId = addLoopId id
 
+lineToRtl (For init cond inc block) scope id = (initRtl ++
+                                         [Label ((getIdString newId) ++ "for")] ++
+                                         condRtl ++
+                                         [Cmp condReg, Je ((getIdString newId) ++ "end")] ++
+                                         blockRtl ++
+                                         incRtl ++
+                                         [Jmp ((getIdString newId) ++ "for"), Label ((getIdString newId) ++ "end")],
+                                         joinScopes [hideLocals initVar, newVars])
+    where
+        (initRtl, initVar) = lineToRtl init scope id
+        scope' = joinScopes [scope, initVar]
+        (condRtl, condReg, _) = exprToRtl cond 0 scope'
+        (incRtl, _, _) = exprToRtl inc 0 scope'
+        (blockRtl, newVars) = blockToRtl block scope' newId
+        newId = addLoopId id
+
 lineToRtl (Return Nothing) _ id = ([Ret $ getFuncId id], emptyScope)
 
 lineToRtl (Return (Just expr)) scope id =
@@ -115,6 +131,11 @@ lineToRtl (Return (Just expr)) scope id =
         retType = funRetType $ fromJust $ scopeGetFun scope $ getFuncId id
 
 lineToRtl (VarDecl t n s) _ _ = ([], (if s then scopeAddStc else scopeAddLoc) emptyScope (Var n t Nothing True))
+
+lineToRtl (Init t n v) scope _ = (rtl, scope')
+    where
+        (rtl, _, _) = exprToRtl (App (getOpFromSym "=") [Name n, v]) 0 scope'
+        scope' = scopeAddLoc scope (Var n t Nothing True)
 
 lineToRtl a b _ = let (c, _, _) = exprToRtl a 0 b in (c, emptyScope)
 
