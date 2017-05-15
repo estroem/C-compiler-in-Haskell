@@ -52,7 +52,7 @@ getExprList :: [String] -> ([ExprElem], [String])
 getExprList [] = ([], []) -- error "Unexpected end of expression"
 getExprList (x:xs)
     | x == ")" || x == "," || x == ";" || x == "]" = ([], (x:xs))
-    | elem x opShortlist = let exprList = getExprList xs in ((Operator (getOpFromSym x)) : fst exprList, snd exprList)
+    | isOperator x = let exprList = getExprList xs in ((Operator (getOpFromSym x)) : fst exprList, snd exprList)
     | otherwise =  let exprList = getExprList (snd expr) in ((Ast (fst expr)) : fst exprList, snd exprList)
         where
             expr = parseSingleExpr (x:xs)

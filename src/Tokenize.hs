@@ -1,8 +1,8 @@
-module Tokenize ( tokenize, opShortlist, typeShortlist ) where
+module Tokenize ( tokenize, typeShortlist ) where
 
 import Data.Char
 
-opShortlist = ["+", "-", "*", "/", "++", "=", "$", "==", "!=", "!", "&"]
+import Op
 
 typeShortlist = ["int", "short", "byte", "char"]
 
@@ -23,4 +23,4 @@ tokenize (x:xs)
     | otherwise = error $ "Illegal symbol \"" ++ [x] ++ "\"" ++ (show xs)
 
 symExists :: String -> Bool
-symExists sym = elem sym (opShortlist ++ extraSymbols)
+symExists sym = isOperator sym || elem sym extraSymbols
