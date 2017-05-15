@@ -1,4 +1,4 @@
-module Type ( Type (..), getIntType, canCast, getType, getTypeSize ) where
+module Type ( Type (..), getIntType, canCast, getType, getTypeSize, isPrimitive ) where
 
 import Data.Maybe
 import Data.List
@@ -107,3 +107,6 @@ getTypeSize (PrimType "int") = 4
 getTypeSize (PrimType "short") = 2
 getTypeSize (PrimType "byte") = 1
 getTypeSize (PrimType "char") = 1
+
+isPrimitive :: String -> Bool
+isPrimitive str = elem str $ fst $ unzip prims

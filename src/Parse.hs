@@ -60,7 +60,7 @@ parseLine (x:xs) = let (a, b) = parseStatement (x:xs) in (a, drop 1 b)
 
 parseStatement :: [String] -> (Ast, [String])
 parseStatement (x:xs)
-    | isType x =
+    | isPrimitive x =
         if (head rest) == ";"
             then (VarDecl decl name False, tail rest)
             else let (e, r) = parseExpr (tail rest)
@@ -68,9 +68,6 @@ parseStatement (x:xs)
     | otherwise = parseExpr (x:xs)
         where
             (decl, name, rest) = parseDecl (x:xs)
-
-isType :: String -> Bool
-isType str = elem str typeShortlist
 
 parseIf :: [String] -> (Ast, [String])
 parseIf (x:xs) =

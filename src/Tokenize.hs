@@ -1,13 +1,10 @@
-module Tokenize ( tokenize, typeShortlist ) where
+module Tokenize ( tokenize ) where
 
 import Data.Char
 
 import Op
 
-typeShortlist = ["int", "short", "byte", "char"]
-
 extraSymbols = [";", "(", ")", "{", "}", ",", "[", "]"]
-
 
 tokenize :: String -> [String]
 tokenize [] = []
