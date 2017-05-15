@@ -7,6 +7,7 @@ import Scope
 import Type
 import Id
 import Op
+import Ast
 
 type Lit = String
 
@@ -78,7 +79,7 @@ blockToRtl (Block (x:xs)) scope id = (expr ++ block, hideLocals $ joinScopes [sc
 lineToRtl :: Ast -> Scope -> Id -> (Rtl, Scope)
 
 lineToRtl (If cond thenBlock elseBlock) scope id
-    | not $ isEmpty elseBlock = (condRtl ++
+    | not $ astIsEmpty elseBlock = (condRtl ++
                                  [Cmp condReg, Jne ((getIdString newId) ++ "then")] ++
                                  elseBlockRtl ++
                                  [Jmp ((getIdString newId) ++ "end"),
@@ -304,9 +305,6 @@ getPtrType :: Type -> Maybe Type
 getPtrType (PtrType t) = Just t
 getPtrType (ArrayType t _) = Just t
 getPtrType _ = Nothing
-
-isEmpty :: Ast -> Bool
-isEmpty (Block list) = null list
 
 endsOnRet :: Ast -> Bool
 endsOnRet (Block []) = False

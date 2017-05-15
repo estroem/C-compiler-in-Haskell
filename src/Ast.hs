@@ -1,4 +1,4 @@
-module Ast ( Ast (..), Op (..), addAst ) where
+module Ast ( Ast (..), Op (..), addAst, astIsEmpty ) where
 
 import Type
 import Op
@@ -12,3 +12,6 @@ data Ast = Number Integer | Name String | App Op [Ast] | Block [Ast] | VarDecl T
 addAst :: Ast -> Ast -> Ast
 addAst (Block list) ast = Block (ast:list)
 addAst (File list) ast = File (ast:list)
+
+astIsEmpty :: Ast -> Bool
+astIsEmpty (Block list) = null list
