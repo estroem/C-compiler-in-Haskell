@@ -55,12 +55,18 @@ parseLine ("return":r)
     | otherwise = (Return $ Just expr, drop 1 r2)
     where
         (expr, r2) = parseExpr r
-parseLine (x:xs)
-    | isType x = (VarDecl decl name False, if (head rest) == ";" then tail rest else name:rest)
-    | otherwise = (fst expr, drop 1 $ snd expr)
+parseLine (x:xs) = let (a, b) = parseStatement (x:xs) in (a, drop 1 b)
+
+parseStatement :: [String] -> (Ast, [String])
+parseStatement (x:xs)
+    | isType x =
+        if (head rest) == ";"
+            then (VarDecl decl name False, tail rest)
+            else let (e, r) = parseExpr (tail rest)
+                in (Init decl name e, r)
+    | otherwise = parseExpr (x:xs)
         where
             (decl, name, rest) = parseDecl (x:xs)
-            expr = parseExpr (x:xs)
 
 isType :: String -> Bool
 isType str = elem str typeShortlist
