@@ -10,7 +10,12 @@ tokenize :: String -> [String]
 tokenize [] = []
 tokenize ('/':'/':xs) = tokenize $ dropWhile (/= '\n') xs
 tokenize (x:xs)
-    | isDigit x = (x : takeWhile isDigit xs) : tokenize (dropWhile isDigit xs)
+    | isDigit x || x == '.' =
+        if (head $ dropWhile isDigit xs) == '.'
+            then let (num, r) = span isDigit (x:xs)
+                     (dec, r') = span isDigit (tail r)
+               in (num ++ "." ++ dec) : tokenize r'
+            else (x : takeWhile isDigit xs) : tokenize (dropWhile isDigit xs)
     | isAlpha x = (x : takeWhile isAlpha xs) : tokenize (dropWhile isAlpha xs)
     | x == '"' = (x : takeWhile (/= '"') xs) : tokenize (tail $ dropWhile (/= '"') xs)
     | x == ' ' || x == '\t' || x == '\n' || x == '\r' = tokenize xs
