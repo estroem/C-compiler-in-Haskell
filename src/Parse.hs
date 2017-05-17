@@ -7,8 +7,8 @@ import Data.List
 import Type
 import Tokenize
 import Ast
-import ParseDecl
-import ParseExpr
+import Parse.ParseDecl
+import Parse.ParseExpr
 
 
 parse :: [String] -> Ast

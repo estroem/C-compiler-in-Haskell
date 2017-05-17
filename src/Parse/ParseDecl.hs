@@ -1,4 +1,4 @@
-module ParseDecl ( parseDecl ) where
+module Parse.ParseDecl ( parseDecl ) where
 
 import Data.Char
 import Data.Maybe
