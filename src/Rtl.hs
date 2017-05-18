@@ -18,7 +18,8 @@ data RtlLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Reg I
              | FuncStart String | FuncEnd String | Ret String | Push Reg | LoadLoc Reg Integer
              | SaveLoc Integer Reg | Pop Reg | AddConst Reg Integer | SubConst Reg Integer
              | MulConst Reg Integer | DivConst Reg Integer | LoadLit Reg Lit | MovReg Reg Reg
-             | Addr Reg String | AddrLoc Reg Integer | Test Reg | Setz Reg | AndConst Reg Integer
+             | Addr Reg String | AddrLoc Reg Integer | Test Reg | Setz Reg | Setl Reg | Setg Reg
+             | Setle Reg | Setge Reg | AndConst Reg Integer
     deriving (Show)
 type Reg = Integer
 
@@ -202,6 +203,10 @@ exprToRtl (App op exprList) nextReg scope =
             "$" -> (expr ++ [DeRef reg], reg)
             "==" -> (expr1 ++ expr2 ++ [Sub reg2 reg1, Setz reg2, AndConst reg2 1], reg2)
             "!=" -> (expr1 ++ expr2 ++ [Sub reg2 reg1], reg2)
+            "<" -> (expr1 ++ expr2 ++ [Sub reg2 reg1, Setl reg2, AndConst reg2 1], reg2)
+            ">" -> (expr1 ++ expr2 ++ [Sub reg2 reg1, Setg reg2, AndConst reg2 1], reg2)
+            "<=" -> (expr1 ++ expr2 ++ [Sub reg2 reg1, Setle reg2, AndConst reg2 1], reg2)
+            ">=" -> (expr1 ++ expr2 ++ [Sub reg2 reg1, Setge reg2, AndConst reg2 1], reg2)
             "&" -> handleAddr (head exprList) nextReg scope
             "!" -> (expr ++ [Test reg, Setz reg, AndConst reg 1], reg)
 

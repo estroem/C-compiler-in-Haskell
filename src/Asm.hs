@@ -77,6 +77,10 @@ toAsmLine (Addr reg name) _ _        = (["mov " ++ getReg reg ++ ", " ++ name], 
 toAsmLine (AddrLoc reg offset) _ _   = (["lea " ++ getReg reg ++ ", [" ++ getReg reg_ebp ++ (if offset > 0 then "+" else "") ++ show offset ++ "]"], [])
 toAsmLine (Test reg) _ _             = (["test " ++ getReg reg ++ ", " ++ getReg reg], [])
 toAsmLine (Setz reg) _ _             = (["setz " ++ getRegLower reg], [])
+toAsmLine (Setl reg) _ _             = (["setl " ++ getRegLower reg], [])
+toAsmLine (Setg reg) _ _             = (["setg " ++ getRegLower reg], [])
+toAsmLine (Setle reg) _ _            = (["setle " ++ getRegLower reg], [])
+toAsmLine (Setge reg) _ _            = (["setge " ++ getRegLower reg], [])
 toAsmLine (AndConst reg i) _ _       = (["and " ++ getReg reg ++ ", " ++ show i], [])
 
 retNumLocals :: Scope -> RtlLine -> RtlLine
