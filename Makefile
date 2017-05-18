@@ -1,7 +1,8 @@
 .DEFAULT_GOAL := compiler.exe
 
 clean:
-	rm compiler.exe obj/* run.exe run.asm run.obj
+	rm -f compiler.exe run.exe run.asm run.obj
+	rm -rf obj
 
 run.exe: run.obj
 	gcc -o run.exe run.obj
