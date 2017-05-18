@@ -76,7 +76,7 @@ toAsmLine (MovReg reg1 reg2) _ _     = (["mov " ++ getReg reg1 ++ ", " ++ getReg
 toAsmLine (Addr reg name) _ _        = (["mov " ++ getReg reg ++ ", " ++ name], [])
 toAsmLine (AddrLoc reg offset) _ _   = (["lea " ++ getReg reg ++ ", [" ++ getReg reg_ebp ++ (if offset > 0 then "+" else "") ++ show offset ++ "]"], [])
 toAsmLine (Test reg) _ _             = (["test " ++ getReg reg ++ ", " ++ getReg reg], [])
-toAsmLine (Setz reg) _ _             = (["setz " ++ (getReg reg) !! 1 : "l"], [])
+toAsmLine (Setz reg) _ _             = (["setz " ++ getRegLower reg], [])
 toAsmLine (AndConst reg i) _ _       = (["and " ++ getReg reg ++ ", " ++ show i], [])
 
 retNumLocals :: Scope -> RtlLine -> RtlLine
@@ -97,6 +97,9 @@ getReg 1 = "eax"
 getReg 2 = "ebx"
 getReg 3 = "ecx"
 getReg 4 = "edx"
+
+getRegLower :: Reg -> String
+getRegLower r = (getReg r) !! 1 : "l"
 
 getSizeWordData :: Integer -> String
 getSizeWordData 1 = "db"
