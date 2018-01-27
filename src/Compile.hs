@@ -1,4 +1,4 @@
-module Compile ( compile ) where
+module Compile ( runCompiler, compileFile ) where
 
 import Data.Maybe
 
@@ -63,8 +63,8 @@ failIf :: Bool -> Error -> Compiler ()
 failIf True e = failure e
 failIf False _ = return ()
 
-compile :: File -> Either [String] Error
-compile s = either (Left . envGetAsm . fst) Right $ c emptyEnv
+runCompiler :: File -> Either [String] Error
+runCompiler s = either (Left . envGetAsm . fst) Right $ c emptyEnv
     where (C c) = compileFile s
 
 loop :: (Monad m) => (a -> m ()) -> [a] -> m ()
@@ -183,6 +183,33 @@ compileExpr (App "+" [expr1, expr2]) = do
             addLine $ "add " ++ reg2 ++ ", " ++ reg1
             return (reg2, fromJust retType)
 
+compileExpr (App sym [expr]) = do
+    (reg, typ) <- compileExpr expr
+    let retType = getType sym typ undefined
+    failIf (retType == Nothing) "Incompatible type"
+    case sym of
+        "$" -> addLine $ "mov " ++ reg ++ ", [" ++ reg ++ "]"
+        "!" -> do
+            addLine $ "test " ++ reg
+            addLine $ "setz " ++ reg
+            addLine $ "add " ++ reg ++ ", 1"
+
+compileExpr (App sym [expr1, expr2]) = do
+    (reg1, type1) <- compileExpr expr1
+    (reg2, type2) <- compileExpr expr2
+    let retType = getType sym type1 type2
+    failIf (retType == Nothing) "Incompatible types"
+    case sym of
+        "*" -> addLine $ "imul " ++ reg1 ++ ", " ++ reg2
+        "/" -> addLine $ "div " ++ reg1 ++ ", " ++ reg2
+        "==" -> do
+            addLine $ "sub " ++ reg1 ++ ", " ++ reg2
+            addLine $ "setz" ++ reg1
+            addLine $ "add " ++ reg1 ++ ", 1"
+        "!=" -> addLine $ "sub " ++ reg1 ++ ", " ++ reg
+    freeReg
+    return (reg1, retType)
+    
 compileExpr (Call (Name name) args) = do
     retType <- getVarType name
     reg <- getReg
