@@ -21,10 +21,10 @@ data Fun = Fun
     , funRetType :: Type
     , funArgs :: [(Type, String)]
     , funIsDef :: Bool
-    , numLocals :: Integer
+    , numLocals :: Int
     } deriving (Show)
 
-data Value = Integer Integer | Float Float | String String
+data Value = Integer Int | Float Float | String String
     deriving (Show, Eq)
 
 --           Scope globals statics locals functions
@@ -49,7 +49,7 @@ scopeAddLoc (Scope gs ss ps ls fs) v = (Scope gs ss ps (v:ls) fs)
 scopeAddFun :: Scope -> Fun -> Scope
 scopeAddFun (Scope gs ss ps ls fs) f = (Scope gs ss ps ls (f:fs))
 
-getOffset :: Scope -> String -> Maybe Integer
+getOffset :: Scope -> String -> Maybe Int
 getOffset (Scope _ _ ps ls _) n =
     let a = find (\ v -> varName v == n) ls
         in if isJust a
@@ -60,12 +60,12 @@ getOffset (Scope _ _ ps ls _) n =
                     then Just $ (getLocalAddr (fromJust b) ps) + 8
                     else Nothing
 
-getLocalAddr :: Var -> [Var] -> Integer
+getLocalAddr :: Var -> [Var] -> Int
 getLocalAddr v s =
     (foldl (\ t v -> t + roundUpTo 4 (getTypeSize $ varType v)) 0
         $ takeWhile (/=v) s)
 
-roundUpTo :: Integer -> Integer -> Integer
+roundUpTo :: Int -> Int -> Int
 roundUpTo y x = x + y - ((x - 1) `mod` y) - 1
 
 scopeHasVar :: Scope -> String -> Bool
@@ -89,5 +89,5 @@ joinScopes list = joinScopesLoop list emptyScope where
 hideLocals :: Scope -> Scope
 hideLocals (Scope gs ss ps ls fs) = Scope gs ss ps (map (\ (Var n t v _) -> Var n t v False) ls) fs
 
-getTotalSize :: [Var] -> Integer
+getTotalSize :: [Var] -> Int
 getTotalSize vs = foldl (\ t v -> t + (getTypeSize $ varType v)) 0 vs

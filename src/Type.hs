@@ -1,9 +1,9 @@
-module Type ( Type (..), getIntType, canCast, getType, getTypeSize, isPrimitive ) where
+module Type ( Type (..), getIntType, canCast, getType, getTypeSize, isPrimitive, getPtrType ) where
 
 import Data.Maybe
 import Data.List
 
-data Type = PrimType String | PtrType Type | FuncType Type [(Type, String)] | ArrayType Type Integer | EmptyType
+data Type = PrimType String | PtrType Type | FuncType Type [(Type, String)] | ArrayType Type Int | EmptyType
 
 instance Eq Type where
     (PtrType a) == (PtrType b) = a == b
@@ -100,7 +100,7 @@ showType (FuncType ret args) str =
 showType (ArrayType t i) str = showType t $ str ++ "[" ++ show i ++ "]"
 showType EmptyType _ = "EmptyType"
 
-getTypeSize :: Type -> Integer
+getTypeSize :: Type -> Int
 getTypeSize (ArrayType t i) = i * getTypeSize t
 getTypeSize (PtrType _) = 4
 getTypeSize (PrimType "int") = 4
@@ -110,3 +110,8 @@ getTypeSize (PrimType "char") = 1
 
 isPrimitive :: String -> Bool
 isPrimitive str = elem str $ fst $ unzip prims
+
+getPtrType :: Type -> Maybe Type
+getPtrType (PtrType t) = Just t
+getPtrType (ArrayType t _) = Just t
+getPtrType _ = Nothing

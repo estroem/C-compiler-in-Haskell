@@ -10,7 +10,6 @@ import Ast
 import Parse.ParseDecl
 import Parse.ParseExpr
 
-
 parse :: [String] -> Ast
 parse = fst . parseFile
 
