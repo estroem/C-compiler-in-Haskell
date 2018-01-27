@@ -3,40 +3,36 @@ module Compile ( runCompiler, compileFile ) where
 import Data.Maybe
 
 import Scope
+import Reg
 import Type
+import Pseudo
 
 underscore = "_"
+reg_eax = -3
+reg_esp = -1
 
 ----- ENVIRONMENT -----
 
-type Env = ([String], Reg, Scope)
-type Reg = Int
+type Env = (Pseudo, Reg, Scope)
 type Id = Int
 
 startReg = 0
 emptyEnv = ([], startReg, emptyScope)
-regs = ["eax", "ebx", "ecx", "edx"]
 
-envGetAsm :: Env -> [String]
+envGetAsm :: Env -> Pseudo
 envGetAsm (s, _, _) = s
 
-getRegFromEnv :: Env -> String
-getRegFromEnv (_, r, _) = regs !! r
+getRegFromEnv :: Env -> Reg
+getRegFromEnv (_, r, _) = r
 
 envFreeReg :: Env -> Env
 envFreeReg (a, r, s) = (a, r - 1, s)
 
-addLineToEnv :: String -> Env -> Env
-addLineToEnv str (xs, r, s) = (str:xs, r, s)
+addLineToEnv :: PseudoLine -> Env -> Env
+addLineToEnv l (xs, r, s) = (l:xs, r, s)
 
 nextReg :: Env -> Env
 nextReg (env, r, s) = (env, r + 1, s)
-
-envVarExists :: String -> Env -> Bool
-envVarExists str (_, _, scope) = scopeHasVar scope str
-
-envVarType :: String -> Env -> Type
-envVarType str (_, _, scope) = PrimType "int"
 
 envGetScope :: Env -> Scope
 envGetScope (_, _, s) = s
@@ -63,7 +59,7 @@ failIf :: Bool -> Error -> Compiler ()
 failIf True e = failure e
 failIf False _ = return ()
 
-runCompiler :: File -> Either [String] Error
+runCompiler :: File -> Either Pseudo Error
 runCompiler s = either (Left . envGetAsm . fst) Right $ c emptyEnv
     where (C c) = compileFile s
 
@@ -71,16 +67,19 @@ loop :: (Monad m) => (a -> m ()) -> [a] -> m ()
 loop _ [] = return ()
 loop f (x:xs) = f x >> loop f xs
 
-addLine :: String -> Compiler ()
-addLine str = C $ \ env -> Left (addLineToEnv str env, ())
+addLine :: PseudoLine -> Compiler ()
+addLine l = C $ \ env -> Left (addLineToEnv l env, ())
 
-getReg :: Compiler String
+addLines :: Pseudo -> Compiler ()
+addLines = loop addLine
+
+getReg :: Compiler Reg
 getReg = C $ \ env -> Left (nextReg env, getRegFromEnv env)
 
 freeReg :: Compiler ()
 freeReg = C $ \ env -> Left (envFreeReg env, ())
 
-borrowReg :: Compiler String
+borrowReg :: Compiler Reg
 borrowReg = C $ \ env -> Left (env, getRegFromEnv env)
 
 varExists :: String -> Compiler Bool
@@ -121,7 +120,7 @@ data Expr = Number Integer | Name String | App String [Expr] | Call Expr [Expr] 
 compileFile :: File -> Compiler ()
 compileSymb :: Symb -> Compiler ()
 compileStmt :: Stmt -> Compiler ()
-compileExpr :: Expr -> Compiler (String, Type)
+compileExpr :: Expr -> Compiler (Reg, Type)
 
 compileFile (File s) = loop compileSymb s
 
@@ -132,7 +131,7 @@ compileSymb (FunDecl (FuncType retType args) name) = addFun $ Fun name retType a
 
 compileSymb (Func (FuncType retType args) name body) = do
     addFun (Fun name retType args True $ countLocals body)
-    addLine $ name ++ ":"
+    addLine $ Label $ underscore ++ name
     sc <- getScope
     loop compileStmt body
     setScope sc
@@ -146,28 +145,28 @@ compileStmt (LocVar typ name _) = addLoc $ Var name typ Nothing True
 
 compileStmt (If cond st1 st2) = do
     (reg, _) <- compileExpr cond
-    addLine $ "cmp " ++ reg
-    addLine "jz else"
+    addLine $ Cmp reg
+    addLine $ Je "else"
     compileStmt st1
-    addLine "jmp end"
-    addLine "else:"
+    addLine $ Jmp "else"
+    addLine $ Label "else"
     compileStmt st2
-    addLine "end:"
+    addLine $ Label "end"
 
 compileStmt Nop = return ()
 
-compileStmt (Expr expr) = compileExpr expr >> return ()
+compileStmt (Expr expr) = compileExpr expr >> freeReg >> return ()
 
 compileExpr (Number x) = do
     reg <- getReg
-    addLine $ "mov " ++ (show x) ++ ", " ++ reg
+    addLine $ Mov reg x
     return (reg, fromJust $ getIntType x)
 
 compileExpr (Name name) = do
     exists <- varExists name
     failIf (not exists) $ "Missing variable " ++ show name
     reg <- getReg
-    addLine $ "load " ++ name ++ " to " ++ reg
+    addLine $ Load reg name
     typ <- getVarType name
     return (reg, typ)
 
@@ -175,24 +174,21 @@ compileExpr (App "+" [expr1, expr2]) = do
     (reg1, type1) <- compileExpr expr1
     (reg2, type2) <- compileExpr expr2
     let retType = getType "+" type1 type2
-    if not $ isJust retType
-        then failure $ "Incompatible types"
-        else do
-            fixPtrOffset reg1 type1
-            fixPtrOffset reg2 type2
-            addLine $ "add " ++ reg2 ++ ", " ++ reg1
-            return (reg2, fromJust retType)
+    failIf (not $ isJust retType) "Incompatible types"
+    fixPtrOffset reg1 type1
+    fixPtrOffset reg2 type2
+    addLine $ Add reg1 reg2
+    freeReg
+    return (reg1, fromJust retType)
 
 compileExpr (App sym [expr]) = do
     (reg, typ) <- compileExpr expr
     let retType = getType sym typ undefined
     failIf (retType == Nothing) "Incompatible type"
     case sym of
-        "$" -> addLine $ "mov " ++ reg ++ ", [" ++ reg ++ "]"
-        "!" -> do
-            addLine $ "test " ++ reg
-            addLine $ "setz " ++ reg
-            addLine $ "add " ++ reg ++ ", 1"
+        "$" -> addLine $ DeRef reg
+        "!" -> addLines [Test reg, Setz reg, AddConst reg 1]
+    return (reg, fromJust retType)
 
 compileExpr (App sym [expr1, expr2]) = do
     (reg1, type1) <- compileExpr expr1
@@ -200,45 +196,42 @@ compileExpr (App sym [expr1, expr2]) = do
     let retType = getType sym type1 type2
     failIf (retType == Nothing) "Incompatible types"
     case sym of
-        "*" -> addLine $ "imul " ++ reg1 ++ ", " ++ reg2
-        "/" -> addLine $ "div " ++ reg1 ++ ", " ++ reg2
-        "==" -> do
-            addLine $ "sub " ++ reg1 ++ ", " ++ reg2
-            addLine $ "setz" ++ reg1
-            addLine $ "add " ++ reg1 ++ ", 1"
-        "!=" -> addLine $ "sub " ++ reg1 ++ ", " ++ reg
+        "*" -> addLine $ Mul reg1 reg2
+        "/" -> addLine $ Div reg1 reg2
+        "==" -> addLines [Sub reg1 reg2, Setz reg1, AddConst reg1 1]
+        "!=" -> addLine $ Sub reg1 reg2
     freeReg
-    return (reg1, retType)
+    return (reg1, fromJust retType)
     
 compileExpr (Call (Name name) args) = do
     retType <- getVarType name
     reg <- getReg
-    if reg /= "eax"
-        then addLine $ "mov " ++ reg ++ ", eax"
+    if reg /= reg_eax
+        then addLine $ Push reg_eax
         else return ()
     handleCallArgs args
-    addLine $ "call " ++ underscore ++ name
-    addLine $ "add esp, " ++ (show $ length args * 4)
-    if reg /= "eax"
+    addLine $ CallName (underscore ++ name) [] 0
+    addLine $ AddConst reg_esp $ toInteger $ length args * 4
+    if reg /= reg_eax
         then do
-            reg2 <- getReg
-            addLine $ "mov " ++ reg2 ++ ", eax"
-            addLine $ "mov eax, " ++ reg
-            return (reg2, retType)
-        else return (reg, retType)
+            addLine $ MovReg reg reg_eax
+            addLine $ Pop reg_eax
+        else return ()
+    return (reg, retType)
 
 handleCallArgs :: [Expr] -> Compiler ()
 handleCallArgs = loop $ \ x -> do
     (reg, _) <- compileExpr x
-    addLine $ "push " ++ reg
+    addLine $ Push reg
+    freeReg
     
-fixPtrOffset :: String -> Type -> Compiler ()
+fixPtrOffset :: Reg -> Type -> Compiler ()
 fixPtrOffset reg1 typ =
     maybe (return ())
         (\ t -> do
             reg2 <- borrowReg
-            addLine $ "mov " ++ reg2 ++ ", " ++ (show $ getTypeSize t)
-            addLine $ "mul " ++ reg1 ++ ", " ++ reg2
+            addLine $ Mov reg2 $ toInteger $ getTypeSize t
+            addLine $ Mul reg1 reg2
         )
         $ getPtrType typ
 

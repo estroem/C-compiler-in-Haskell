@@ -1,6 +1,6 @@
-module Reg where
+module Reg ( Reg, Regs ) where
 
-type Reg = Integer
+type Reg = Int
 type Regs = [Reg]
 
 allRegs :: Regs
