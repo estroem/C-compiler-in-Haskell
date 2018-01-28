@@ -1,4 +1,4 @@
-module Pseudo ( Pseudo, PseudoLine (..) ) where
+module Pseudo ( Pseudo, PseudoLine (..), Lit ) where
 
 import Reg
 
@@ -14,3 +14,4 @@ data PseudoLine = Add Reg Reg | Sub Reg Reg | Mul Reg Reg | Div Reg Reg | Mov Re
     deriving (Show)
 
 type Pseudo = [PseudoLine]
+type Lit = String

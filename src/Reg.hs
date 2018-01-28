@@ -1,7 +1,12 @@
-module Reg ( Reg, Regs ) where
+module Reg ( Reg, Regs, reg_esp, reg_ebp ) where
 
 type Reg = Int
 type Regs = [Reg]
+
+reg_ebp :: Int
+reg_esp = -1
+reg_esp :: Int
+reg_ebp = -2
 
 allRegs :: Regs
 allRegs = [0, 1, 2, 3]

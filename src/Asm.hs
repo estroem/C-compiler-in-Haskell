@@ -3,15 +3,16 @@ module Asm ( Asm, toAsm ) where
 import Data.List
 import Data.Maybe
 
-import Rtl
+import Pseudo
 import Scope
 import Type
+import Reg
 
 type AsmLine = String
 type Asm = [AsmLine]
 
 
-toAsm :: Rtl -> Scope -> Asm
+toAsm :: Pseudo -> Scope -> Asm
 toAsm r scope@(Scope gs ss _ _ fs) = toAsmExtern fs ++ toAsmGlobals fs ++
                                ["section .data"] ++ (map toAsmDataLine $ gs ++ ss) ++
                                ["section .rodata", "?strings:"] ++ (map toAsmLitLine lits) ++
@@ -36,14 +37,14 @@ toAsmDataLine (Var n t v _) = n ++ ": " ++ (getSizeWordData $ getTypeSize t) ++ 
 toAsmLitLine :: Lit -> String
 toAsmLitLine l = "db `" ++ l ++ "`, 0"
 
-toAsmLines :: Rtl -> (Asm, [Lit])
+toAsmLines :: Pseudo -> (Asm, [Lit])
 toAsmLines rtl = toAsmLinesLoop rtl 0 [] [] where
     toAsmLinesLoop [] _ asm lits = (asm, lits)
     toAsmLinesLoop (x:xs) i asm lits = toAsmLinesLoop xs (i+1) (asm++lines) (lits++newLit)
         where
             (lines, newLit) = toAsmLine x i lits
 
-toAsmLine :: RtlLine -> Integer -> [Lit] -> ([AsmLine], [Lit])
+toAsmLine :: PseudoLine -> Integer -> [Lit] -> ([AsmLine], [Lit])
 toAsmLine (Add reg1 reg2) _ _        = (["add " ++ getReg reg1 ++ ", " ++ getReg reg2], [])
 toAsmLine (Sub reg1 reg2) _ _        = (["sub " ++ getReg reg1 ++ ", " ++ getReg reg2], [])
 toAsmLine (Mul reg1 reg2) _ _        = (["imul " ++ getReg reg1 ++ ", " ++ getReg reg2], [])
@@ -83,29 +84,29 @@ toAsmLine (Setle reg) _ _            = (["setle " ++ getRegLower reg], [])
 toAsmLine (Setge reg) _ _            = (["setge " ++ getRegLower reg], [])
 toAsmLine (AndConst reg i) _ _       = (["and " ++ getReg reg ++ ", " ++ show i], [])
 
-retNumLocals :: Scope -> RtlLine -> RtlLine
+retNumLocals :: Scope -> PseudoLine -> PseudoLine
 retNumLocals s (Ret n) = Ret $ show $ (funcGetNumLoc s n)
 retNumLocals _ a = a
 
-litsGetSize :: [Lit] -> Integer
-litsGetSize list = foldr (\ l s -> s + toInteger (length l) + 1) 0 list
+litsGetSize :: [Lit] -> Int
+litsGetSize list = foldr (\ l s -> s + (length l) + 1) 0 list
 
-funcGetNumLoc :: Scope -> String -> Integer
+funcGetNumLoc :: Scope -> String -> Int
 funcGetNumLoc (Scope _ _ _ _ fs) n = numLocals $ fromJust $ find (\f -> (funName f) == n) fs
 
 getReg :: Reg -> String
 getReg (-3) = "eax"
 getReg (-2) = "ebp"
 getReg (-1) = "esp"
-getReg 1 = "eax"
-getReg 2 = "ebx"
-getReg 3 = "ecx"
-getReg 4 = "edx"
+getReg 0 = "eax"
+getReg 1 = "ebx"
+getReg 2 = "ecx"
+getReg 3 = "edx"
 
 getRegLower :: Reg -> String
 getRegLower r = (getReg r) !! 1 : "l"
 
-getSizeWordData :: Integer -> String
+getSizeWordData :: Int -> String
 getSizeWordData 1 = "db"
 getSizeWordData 2 = "dw"
 getSizeWordData 4 = "dd"

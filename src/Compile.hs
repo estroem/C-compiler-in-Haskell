@@ -1,15 +1,28 @@
 module Compile ( runCompiler, compileFile ) where
 
 import Data.Maybe
+import Data.List
+import Control.Monad
+import Control.Applicative
 
 import Scope
 import Reg
 import Type
 import Pseudo
+import Asm
 
 underscore = "_"
-reg_eax = -3
-reg_esp = -1
+reg_eax = 0
+
+----- MAIN -----
+
+file = File [Func (FuncType (PrimType "int") [(PtrType $ PrimType "char", "v")]) "printf" [], Func (FuncType (PrimType "int") []) "main" [Expr $ Call (Name "printf") [Literal "hey"]]]
+
+compile :: File -> (Pseudo, Scope)
+compile = runCompiler . compileFile
+
+main :: IO ()
+main = putStr $ intercalate "\n" $ (uncurry toAsm) $ compile file
 
 ----- ENVIRONMENT -----
 
@@ -29,7 +42,7 @@ envFreeReg :: Env -> Env
 envFreeReg (a, r, s) = (a, r - 1, s)
 
 addLineToEnv :: PseudoLine -> Env -> Env
-addLineToEnv l (xs, r, s) = (l:xs, r, s)
+addLineToEnv l (xs, r, s) = (xs++[l], r, s)
 
 nextReg :: Env -> Env
 nextReg (env, r, s) = (env, r + 1, s)
@@ -47,7 +60,6 @@ data Compiler a = C (Env -> Either (Env, a) Error)
 
 instance Monad Compiler where
     return x = C $ \ inp -> Left (inp, x)
---    (>>) (C a) (C b) = C $ \ inp -> either (b . fst) Right $ a inp
     (>>=) (C a) b = C $ \ inp -> case a inp of
         Left (inp', r) -> let (C c) = b r in c inp'
         Right e -> Right e
@@ -59,9 +71,8 @@ failIf :: Bool -> Error -> Compiler ()
 failIf True e = failure e
 failIf False _ = return ()
 
-runCompiler :: File -> Either Pseudo Error
-runCompiler s = either (Left . envGetAsm . fst) Right $ c emptyEnv
-    where (C c) = compileFile s
+runCompiler :: Compiler () -> (Pseudo, Scope)
+runCompiler (C c) = either (\ (e, _) -> (envGetAsm e, envGetScope e)) error $ c emptyEnv
 
 loop :: (Monad m) => (a -> m ()) -> [a] -> m ()
 loop _ [] = return ()
@@ -86,11 +97,18 @@ varExists :: String -> Compiler Bool
 varExists str = getScope >>= return . flip scopeHasVar str
 
 getVarType :: String -> Compiler Type
-getVarType str = do
+getVarType name = do
     sc <- getScope
-    let v = scopeGetVar sc str
-    failIf (v == Nothing) $ "Variable does not exist: " ++ str
-    return $ varType $ fromJust v
+    maybe (failure $ "Variable does not exist: " ++ name) (return . varType) $ scopeGetVar sc name
+
+getFunType :: String -> Compiler Type
+getFunType name = do
+    getFun name >>= return . funRetType
+
+getFun :: String -> Compiler Fun
+getFun name = do
+    sc <- getScope
+    maybe (failure $ "Function does not exist: " ++ name) return $ scopeGetFun sc name
 
 addGlo :: Var -> Compiler ()
 addGlo var = getScope >>= setScope . flip scopeAddGlo var
@@ -130,11 +148,14 @@ compileSymb (Init typ name expr) = addGlo $ Var name typ (Just $ evaluate expr) 
 compileSymb (FunDecl (FuncType retType args) name) = addFun $ Fun name retType args False 0
 
 compileSymb (Func (FuncType retType args) name body) = do
-    addFun (Fun name retType args True $ countLocals body)
-    addLine $ Label $ underscore ++ name
+    let numLocals = countLocals body
+    addFun (Fun name retType args True numLocals)
+    addLines [Label $ underscore ++ name, Push reg_ebp, MovReg reg_ebp reg_esp]
+    when (numLocals > 0) $ addLine $ SubConst reg_esp $ toInteger numLocals
     sc <- getScope
     loop compileStmt body
     setScope sc
+    addLine $ Ret name
 
 compileStmt (Block body) = do
     sc <- getScope
@@ -156,6 +177,9 @@ compileStmt (If cond st1 st2) = do
 compileStmt Nop = return ()
 
 compileStmt (Expr expr) = compileExpr expr >> freeReg >> return ()
+
+compileExpr (Literal s) = do
+    
 
 compileExpr (Number x) = do
     reg <- getReg
@@ -204,7 +228,7 @@ compileExpr (App sym [expr1, expr2]) = do
     return (reg1, fromJust retType)
     
 compileExpr (Call (Name name) args) = do
-    retType <- getVarType name
+    retType <- getFunType name
     reg <- getReg
     if reg /= reg_eax
         then addLine $ Push reg_eax
